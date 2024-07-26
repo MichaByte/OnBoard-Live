@@ -21,7 +21,6 @@ bolt = App(
 bolt_handler = SlackRequestHandler(bolt)
 
 
-@bolt.event("")
 @api.get("/api/v1/stream_key/{stream_key}")
 async def get_stream_by_key(stream_key: str):
     await db.connect()
