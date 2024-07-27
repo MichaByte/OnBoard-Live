@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request, Response
 from prisma import Prisma
 from secrets import token_hex
-import asyncio
 from slack_bolt import Ack, App, Say
 from slack_bolt.adapter.fastapi import SlackRequestHandler
 from dotenv import load_dotenv
