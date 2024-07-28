@@ -1,7 +1,9 @@
+from random import choice
 from fastapi import FastAPI, Request, Response
 from prisma import Prisma
 from secrets import token_hex
-from slack_bolt import Ack, App, Say
+from slack_bolt import Ack, App
+from fastapi_utils.tasks import repeat_every
 from slack_bolt.adapter.fastapi import SlackRequestHandler
 from dotenv import load_dotenv
 import os
@@ -18,6 +20,8 @@ bolt = App(
 )
 
 bolt_handler = SlackRequestHandler(bolt)
+
+active_stream = None
 
 
 @api.get("/api/v1/stream_key/{stream_key}")
@@ -36,26 +40,6 @@ async def get_user_by_id(user_id: str):
     user = await db.user.find_first(where={"slack_id": user_id})
     await db.disconnect()
     return user if user else Response(status_code=404, content="404: User not found")
-
-
-@api.post("/api/v1/user")
-async def create_user(user: dict):
-    await db.connect()
-    try:
-        new_user = await db.user.create(
-            {"slack_id": user["slack_id"], "name": user["name"]}
-        )
-        print(new_user.id)
-        new_stream = await db.stream.create(
-            {"user": {"connect": {"id": new_user.id}}, "key": token_hex(16)}
-        )
-        print(new_user, new_stream)
-        return new_user, new_stream
-    except Exception as e:
-        await db.disconnect()
-        return Response(status_code=500, content=f"500: {str(e)}")
-    finally:
-        await db.disconnect()
 
 
 @bolt.event("app_home_opened")
@@ -80,20 +64,38 @@ def handle_app_home_opened_events(body, logger, event, client):
     )
 
 
+@bolt.action("approve")
+def approve(ack, body):
+    ack()
+    message = body["message"]
+    applicant_slack_id = message["blocks"][len(message) - 3]["text"]["text"].split(": ")[1] # I hate it. You hate it. We all hate it. Carry on.
+    applicant_name = message["blocks"][len(message) - 6]["text"]["text"]
+    print(applicant_slack_id, applicant_name)
+    # new_user = await db.user.create(
+    # {"slack_id": applicant_slack_id, "name": user["name"]}
+    # )
+    # print(new_user.id)
+    # new_stream = await db.stream.create(
+    # {"user": {"connect": {"id": new_user.id}}, "key": token_hex(16)}
+    # )
+    # print(new_user, new_stream)
+
+
 @bolt.view("apply")
 def handle_application_submission(ack, body):
     ack()
     user = body["user"]["id"]
     sumbitter_convo = bolt.client.conversations_open(users=user, return_im=True)
+    user_real_name = bolt.client.users_info(user=user)["user"]["real_name"]
     user_verified = (
-        "Eligible L" not
-        in requests.get(
+        "Eligible L"
+        not in requests.get(
             "https://verify.hackclub.dev/api/status", json={"slack_id": user}
         ).text
     )
     bolt.client.chat_postMessage(
         channel=sumbitter_convo["channel"]["id"],
-        text=f"Your application has been submitted! We will review it shortly. Please do not send another application - If you haven't heard back in over 48 hours, or you forgot something in your application, please message <@{os.environ['ADMIN_SLACK_ID']}>! Here's a copy of your responses for your reference:\nSome info on your project(s): {body['view']['state']['values']['project-info']['project-desc-value']['value']}{f"\nPlease fill out <https://forms.hackclub.com/eligibility?program=Onboard%20Live&slack_id={user}|the verification form>! We can't approve your application until this is done." if not user_verified else ""}",
+        text=f"Your application has been submitted! We will review it shortly. Please do not send another application - If you haven't heard back in over 48 hours, or you forgot something in your application, please message <@{os.environ['ADMIN_SLACK_ID']}>! Here's a copy of your responses for your reference:\nSome info on your project(s): {body['view']['state']['values']['project-info']['project-info-body']['value']}{f'\nPlease fill out <https://forms.hackclub.com/eligibility?program=Onboard%20Live&slack_id={user}|the verification form>! We can only approve your application once this is done.' if not user_verified else ''}",
     )
     admin_convo = bolt.client.conversations_open(
         users=os.environ["ADMIN_SLACK_ID"], return_im=True
@@ -113,7 +115,7 @@ def handle_application_submission(ack, body):
                 "type": "section",
                 "text": {
                     "type": "plain_text",
-                    "text": f":technologist: Name: SUB_ME",
+                    "text": f":technologist: Name: {user_real_name}",
                     "emoji": True,
                 },
             },
@@ -129,7 +131,7 @@ def handle_application_submission(ack, body):
                 "type": "section",
                 "text": {
                     "type": "plain_text",
-                    "text": f":hammer_and_wrench: Will make: {body['view']['state']['values']['project-info']['project-desc-value']['value']}",
+                    "text": f":hammer_and_wrench: Will make: {body['view']['state']['values']['project-info']['project-info-body']['value']}",
                     "emoji": True,
                 },
             },
@@ -138,6 +140,14 @@ def handle_application_submission(ack, body):
                 "text": {
                     "type": "plain_text",
                     "text": f":pray: Will behave on stream: Yes",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"Slack ID: {user}",
                     "emoji": True,
                 },
             },
@@ -152,13 +162,15 @@ def handle_application_submission(ack, body):
                             "text": "Approve",
                         },
                         "style": "primary",
-                        "value": "deny",
+                        "value": "approve",
+                        "action_id": "approve",
                     },
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "emoji": True, "text": "Deny"},
                         "style": "danger",
-                        "value": "approve",
+                        "value": "deny",
+                        "action_id": "deny",
                     },
                 ],
             },
@@ -169,40 +181,113 @@ def handle_application_submission(ack, body):
 @bolt.command("/onboard-live-apply")
 def apply(ack: Ack, command):
     ack()
-    r = requests.post(
-        "https://slack.com/api/views.open",
-        headers={"Authorization": f"Bearer {os.environ['SLACK_TOKEN']}"},
-        json={
-            "trigger_id": command["trigger_id"],
-            "view": {
-                "type": "modal",
-                "callback_id": "apply",
-                "title": {"type": "plain_text", "text": "Apply to OnBoard Live"},
-                "submit": {"type": "plain_text", "text": "Submit!"},
-                "blocks": [
-                    {
-                        "type": "input",
-                        "block_id": "project-info",
-                        "label": {
-                            "type": "plain_text",
-                            "text": "Some info on your project(s)",
-                        },
-                        "element": {
-                            "type": "plain_text_input",
-                            "multiline": True,
-                            "action_id": "project-desc-value",
-                            "placeholder": {
-                                "type": "plain_text",
-                                "text": "I'm going to make...",
+    print(
+        requests.post(
+            "https://slack.com/api/views.open",
+            headers={
+                "Authorization": f"Bearer {os.environ['SLACK_TOKEN']}",
+                "Content-type": "application/json; charset=utf-8",
+            },
+            json={
+                "trigger_id": command["trigger_id"],
+                "view": {
+                    "type": "modal",
+                    "callback_id": "apply",
+                    "title": {
+                        "type": "plain_text",
+                        "text": "OnBoard Live Application",
+                        "emoji": True,
+                    },
+                    "submit": {"type": "plain_text", "text": "Submit", "emoji": True},
+                    "close": {"type": "plain_text", "text": "Cancel", "emoji": True},
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "Welcome to OnBoard Live!\n\n*Please make sure to read this form thoroughly.*\n\nWe can't wait to see what you make!\n\n_Depending on your screen, you might need to scroll down to see the whole form._",
                             },
                         },
-                    },
-                ],
+                        {"type": "divider"},
+                        {
+                            "type": "input",
+                            "block_id": "project-info",
+                            "element": {
+                                "action_id": "project-info-body",
+                                "type": "plain_text_input",
+                                "multiline": True,
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "I want to make...",
+                                },
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "What do you plan on making?\n\nNote that you can make whatever you want, this is just so we know what level you're at!",
+                                "emoji": True,
+                            },
+                        },
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "Examples of unacceptable behavior include (but are not limited to) streaming inappropriate content or content that is unrelated to PCB design, sharing your stream key with others, trying to abuse the system, streaming work that you did not do or is not actually live (i.e. pre-recorded). Inappropriate behavior may result in removal from the Hack Club Slack or other consequences, as stated in the <https://hackclub.com/conduct/|Code of Conduct>. Any use of your stream key is your responsibilty, so don't share it with anyone for any reason. Admins will never ask for your stream key. Please report any urgent rule violations by messaging <@U05C64XMMHV>. If they do not respond in 5 minutes, please ping <!subteam^S01E4DN8S0Y|fire-fighters>.",
+                            },
+                        },
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Confirm that you have read the above by following these instructions:",
+                            },
+                            "accessory": {
+                                "type": "checkboxes",
+                                "options": [
+                                    {
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "To agree that you will be well-behaved while you're live, DO NOT check this box. Instead, check the one below.",
+                                            "emoji": True,
+                                        },
+                                        "description": {
+                                            "type": "mrkdwn",
+                                            "text": "This is to make sure you're paying attention!",
+                                        },
+                                        "value": "value-0",
+                                    },
+                                    {
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "To agree that you will be well-behaved while you're live, check this box.",
+                                            "emoji": True,
+                                        },
+                                        "value": "value-1",
+                                    },
+                                ],
+                                "action_id": "checkboxes",
+                            },
+                        },
+                        {"type": "divider"},
+                        {
+                            "type": "context",
+                            "elements": [
+                                {
+                                    "type": "mrkdwn",
+                                    "text": "Please ask <@U05C64XMMHV> for help if you need it!",
+                                }
+                            ],
+                        },
+                    ],
+                },
             },
-        },
+        ).text
     )
-    print(r.status_code, r.text)
     # bolt.client.modal(channel=command['channel_id'], user=command['user_id'], text="Application form for OnBoard Live", blocks=[{
+
+
+@bolt.action("checkboxes")
+def handle_some_action(ack):
+    ack()
 
 
 # 		"type": "header",
@@ -259,3 +344,23 @@ def apply(ack: Ack, command):
 @api.post("/slack/events")
 async def slack_event_endpoint(req: Request):
     return await bolt_handler.handle(req)
+
+
+@repeat_every(seconds=5 * 60, wait_first=True)
+async def change_active_stream():
+    global active_stream
+    streams = []
+    for stream in await db.stream.find_many():
+        streams.append(stream.id)
+    if len(streams) == 0:
+        return
+    if active_stream not in streams:
+        active_stream = None
+    if active_stream is None:
+        active_stream = choice(streams)
+    else:
+        if streams.index(active_stream) + 1 == len(streams):
+            active_stream = streams[0]
+        else:
+            active_stream = streams[streams.index(active_stream) + 1]
+        bolt.client.chat_postMessage(channel="C07ERCGG989", text=f":partyparrot_wave1::partyparrot_wave2::partyparrot_wave3::partyparrot_wave4::partyparrot_wave5::partyparrot_wave6::partyparrot_wave7: Hey <@{(await db.stream.find_first(where={'id': active_stream})).user.slack_id}>, you're in focus right now! Remember to talk us through what you're doing!")  # type: ignore

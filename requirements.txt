@@ -4,3 +4,4 @@ slack-bolt
 requests
 python-dotenv
 prisma
+fastapi-utils
