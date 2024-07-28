@@ -100,14 +100,12 @@
         <video
           controls
           autoplay
-          id={pathData[0].name}
-          bind:this={videos[pathData[0].name]}
+          id={activeStream}
+          bind:this={videos[activeStream]}
           class="h-full w-auto"
         ></video>
       </div>
-    {/if}
-
-    {#if activePaths.length > 1}
+    {:else}
       <div
         class="flex justify-center items-center w-screen h-1/2 absolute top-20"
       >
@@ -145,9 +143,7 @@
       </p>
     </div>
   {/if}
-  <h2
-    class="absolute bottom-0 text-center w-screen text-xl"
-  >
+  <h2 class="absolute bottom-0 text-center w-screen text-xl">
     Join at <div
       style="display: inline-block; color: #338eda; text-decoration-line: underline;"
     >
