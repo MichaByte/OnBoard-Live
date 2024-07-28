@@ -1,5 +1,4 @@
 <script lang="ts">
-  // import 'uno.css'
   import hls from "hls.js";
   import { onMount } from "svelte";
   let videos: { [key: string]: HTMLVideoElement } = {};
@@ -7,9 +6,9 @@
     | {
         ready: boolean;
         name: string;
-        focused?: boolean;
       }[]
     | null = null;
+  let activeStream: string;
   let newData:
     | {
         bytesSent: any;
@@ -22,8 +21,14 @@
   onMount(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch("http://localhost:9997/v3/paths/list");
-        newData = (await response.json())["items"];
+        const activeStreamResponse = await fetch(
+          "http://localhost:8000/api/v1/active_stream",
+        );
+        activeStream = await activeStreamResponse.text();
+        const pathListResponse = await fetch(
+          "http://localhost:9997/v3/paths/list",
+        );
+        newData = (await pathListResponse.json())["items"];
         if (newData) {
           for (let i = 0; i < newData.length; i++) {
             delete newData[i].readyTime;
@@ -33,7 +38,7 @@
         }
         console.log(videos);
         videos = Object.fromEntries(
-          Object.entries(videos).filter(([_, v]) => v != null)
+          Object.entries(videos).filter(([_, v]) => v != null),
         );
 
         if (JSON.stringify(newData) !== JSON.stringify(pathData)) {
@@ -44,7 +49,7 @@
               console.log(video);
               const hlsInstance = new hls({ progressive: false });
               hlsInstance.loadSource(
-                `http://localhost:8888/${video}/index.m3u8`
+                `http://localhost:8888/${video}/index.m3u8`,
               );
               hlsInstance.attachMedia(videos[video]);
             }
@@ -65,7 +70,10 @@
   });
 </script>
 
-<div style="width: 100vw; height: 100vw; overflow: hidden; position: absolute; top: 0; left: 0"><div class="gradient"></div>
+<div
+  style="width: 100vw; height: 100vw; overflow: hidden; position: absolute; top: 0; left: 0"
+>
+  <div class="gradient"></div>
 </div>
 <div class="container2">
   <h2
@@ -88,7 +96,7 @@
             autoplay
             id={path.name}
             bind:this={videos[path.name]}
-            class:focused={path.focused}
+            class:active={path.name === activeStream}
             class:video={Object.keys(videos).length > 1}
             class:only-video={!(Object.keys(videos).length > 1)}
           ></video>
@@ -127,11 +135,11 @@
     background-color: transparent;
   }
   .gradient {
-	  width: 100vw;
+    width: 100vw;
     height: 100vh;
-	  position: absolute;
-	  transform-origin: center;
-	  overflow: hidden;
+    position: absolute;
+    transform-origin: center;
+    overflow: hidden;
     background: linear-gradient(
       45deg,
       rgba(236, 55, 80, 1) 0%,
@@ -147,15 +155,15 @@
     0% {
       transform: scale(1) rotate(0deg);
     }
-	25% {
-		transform: scale(2) rotate(-35deg);
-	}
+    25% {
+      transform: scale(2) rotate(-35deg);
+    }
     50% {
       transform: scale(3) rotate(90deg);
     }
-	75% {
-		transform: scale(2) rotate(-35deg);
-	}
+    75% {
+      transform: scale(2) rotate(-35deg);
+    }
     100% {
       transform: scale(1) rotate(0deg);
     }
@@ -172,7 +180,7 @@
     padding-left: 10px;
     padding-right: 10px;
   }
-  .focused {
+  .active {
     width: 75vw;
     height: 75vh;
   }
