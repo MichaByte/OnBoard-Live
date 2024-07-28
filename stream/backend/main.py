@@ -27,8 +27,13 @@ async def update_active():
         for stream in streams:
             if stream["ready"]:
                 active_streams.append(stream)
-        active_stream = choice(active_streams)["name"]
-
+        try:
+            new_stream = choice(active_streams)["name"]
+            while new_stream == active_stream:
+                new_stream = choice(active_streams)["name"]
+            active_stream = new_stream
+        except Exception:
+            pass
 
 async def init_active_update_task():
     global active_stream
