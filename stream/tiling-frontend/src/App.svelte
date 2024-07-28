@@ -18,13 +18,15 @@
         name: string;
       }[]
     | null = null;
+  let activePaths: string[] = [];
+
   onMount(() => {
     const fetchData = async () => {
       try {
         const activeStreamResponse = await fetch(
           "http://localhost:8000/api/v1/active_stream",
         );
-        activeStream = await activeStreamResponse.text();
+        activeStream = (await activeStreamResponse.text()).replaceAll('"', "");
         const pathListResponse = await fetch(
           "http://localhost:9997/v3/paths/list",
         );
@@ -36,7 +38,6 @@
             delete newData[i].bytesSent;
           }
         }
-        console.log(videos);
         videos = Object.fromEntries(
           Object.entries(videos).filter(([_, v]) => v != null),
         );
@@ -44,9 +45,13 @@
         if (JSON.stringify(newData) !== JSON.stringify(pathData)) {
           console.log("Data changed");
           pathData = newData;
+          for (let pathIdx = 0; pathIdx < pathData?.length! - 1; pathIdx++) {
+            if (pathData![pathIdx].ready) {
+              activePaths.push(pathData![pathIdx].name);
+            }
+          }
           setTimeout(() => {
             for (const video in videos) {
-              console.log(video);
               const hlsInstance = new hls({ progressive: false });
               hlsInstance.loadSource(
                 `http://localhost:8888/${video}/index.m3u8`,
@@ -75,45 +80,73 @@
 >
   <div class="gradient"></div>
 </div>
-<div class="container2">
-  <h2
-    style="position: absolute; top: 0; width: 100vw; text-align: center;font-family: Arial, Helvetica, sans-serif;"
-  >
+<div
+  class="flex w-screen h-screen justify-items-center bg-transparent absolute top-0 left-0 overflow-hidden"
+>
+  <h2 class="text-4xl text-center w-screen absolute">
     OnBoard Live Design Stream
   </h2>
   <img
-    style="position: absolute; top: 0; left: 0; border: 0; width: 12vw; z-index: 999;"
+    class="absolute top-0 left-0 w-48"
     src="https://assets.hackclub.com/flag-orpheus-left.svg"
     alt="Hack Club"
   />
   {#if pathData?.map((path) => path.ready).includes(true)}
-    <div class="container">
-      {#each pathData as path}
-        {#if path.ready}
-          <!-- svelte-ignore a11y-media-has-caption -->
-          <video
-            controls
-            autoplay
-            id={path.name}
-            bind:this={videos[path.name]}
-            class:active={path.name === activeStream}
-            class:video={Object.keys(videos).length > 1}
-            class:only-video={!(Object.keys(videos).length > 1)}
-          ></video>
-        {/if}
-      {/each}
-    </div>
-  {:else}
-    <div class="container">
-      <p
-        style="text-align: center; font-size: 5vw; font-family: Arial, Helvetica, sans-serif"
+    {#if activePaths.length == 1}
+      <div
+        class="flex justify-center items-center w-screen h-1/2 absolute top-20"
       >
+        <!-- svelte-ignore a11y-media-has-caption -->
+        <video
+          controls
+          autoplay
+          id={pathData[0].name}
+          bind:this={videos[pathData[0].name]}
+          class="h-full w-auto"
+        ></video>
+      </div>
+    {/if}
+
+    {#if activePaths.length > 1}
+      <div
+        class="flex justify-center items-center w-screen h-1/2 absolute top-20"
+      >
+        <!-- svelte-ignore a11y-media-has-caption -->
+        <video
+          controls
+          autoplay
+          id={activeStream}
+          bind:this={videos[activeStream]}
+          class="h-full w-auto"
+        ></video>
+      </div>
+      <div
+        class="flex justify-center items-center w-screen h-1/4 absolute bottom-10"
+      >
+        {#each pathData as path}
+          {#if path.ready && path.name !== activeStream}
+            <!-- svelte-ignore a11y-media-has-caption -->
+            <video
+              controls
+              autoplay
+              muted
+              id={path.name}
+              bind:this={videos[path.name]}
+              class="h-[20vh] w-auto mx-10"
+            ></video>
+          {/if}
+        {/each}
+      </div>
+    {/if}
+  {:else}
+    <div class="text-center text-4xl absolute w-screen h-screen top-1/2">
+      <p>
         No one is here yet!<br /> Check back later
       </p>
     </div>
   {/if}
   <h2
-    style="position: absolute; bottom: 0; width: 100vw; text-align: center;font-family: Arial, Helvetica, sans-serif;"
+    class="absolute bottom-0 text-center w-screen text-xl"
   >
     Join at <div
       style="display: inline-block; color: #338eda; text-decoration-line: underline;"
@@ -124,16 +157,6 @@
 </div>
 
 <style>
-  .container2 {
-    display: flex;
-    width: 100vw;
-    height: 100vh;
-    flex-wrap: wrap;
-    position: absolute;
-    top: 0;
-    left: 0;
-    background-color: transparent;
-  }
   .gradient {
     width: 100vw;
     height: 100vh;
@@ -168,7 +191,7 @@
       transform: scale(1) rotate(0deg);
     }
   }
-  .video {
+  /* .video {
     width: 40vw;
     height: 40vh;
     padding-left: 10px;
@@ -181,8 +204,8 @@
     padding-right: 10px;
   }
   .active {
-    width: 75vw;
-    height: 75vh;
+    width: 60% !important;
+    height: 60% !important;
   }
   .container {
     align-items: center;
@@ -191,5 +214,5 @@
     justify-content: center;
     height: 100vh;
     width: 100vw;
-  }
+  } */
 </style>
