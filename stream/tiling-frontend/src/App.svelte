@@ -94,7 +94,7 @@
   {#if pathData?.map((path) => path.ready).includes(true)}
     {#if activePaths.length == 1}
       <div
-        class="flex justify-center items-center w-screen h-1/2 absolute top-20"
+        class="flex justify-center items-center w-screen h-3/4 absolute top-20"
       >
         <!-- svelte-ignore a11y-media-has-caption -->
         <video
