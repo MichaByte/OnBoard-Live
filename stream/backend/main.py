@@ -9,16 +9,37 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_utils.tasks import repeat_every
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
+import asyncio
 
 load_dotenv()
 
 
+async def update_active():
+    global active_stream
+    async with httpx.AsyncClient() as client:
+        streams = (await client.get("http://localhost:9997/v3/paths/list")).json()[
+            "items"
+        ]
+        active_streams = []
+        for stream in streams:
+            if stream["ready"]:
+                active_streams.append(stream)
+        active_stream = choice(active_streams)["name"]
+
+
+async def init_active_update_task():
+    global active_stream
+    while True:
+        asyncio.create_task(update_active())
+        await asyncio.sleep(5 * 60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    asyncio.create_task(init_active_update_task())
     await db.connect()
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
@@ -26,8 +47,8 @@ async def lifespan(app: FastAPI):
                 "http://127.0.0.1:9997/v3/config/paths/add/" + stream.key,
                 json={"name": stream.key},
             )
-    yield
     await db.disconnect()
+    yield
 
 
 api = FastAPI(lifespan=lifespan)
@@ -40,7 +61,6 @@ api.add_middleware(
 )
 
 db = Prisma()
-
 
 bolt = AsyncApp(
     token=os.environ["SLACK_TOKEN"], signing_secret=os.environ["SLACK_SIGNING_SECRET"]
@@ -71,6 +91,7 @@ async def get_user_by_id(user_id: str):
 
 @api.get("/api/v1/active_stream")
 async def get_active_stream():
+    global active_stream
     return active_stream
 
 
@@ -156,6 +177,7 @@ async def approve(ack, body):
         channel=sumbitter_convo["channel"]["id"],
         text=f"Your application has been approved! Your stream key is `{new_stream.key}`. Keep this safe and do not share it with anyone!",
     )
+    await db.disconnect()
 
 
 @bolt.view("apply")
@@ -184,8 +206,8 @@ async def handle_application_submission(ack, body):
         users=os.environ["ADMIN_SLACK_ID"], return_im=True
     )
     will_behave = False
-    boxes = body['view']['state']['values']['c+wGI']['checkboxes']['selected_options']
-    if len(boxes) == 1 and boxes[0]["value"] == 'value-1':
+    boxes = body["view"]["state"]["values"]["c+wGI"]["checkboxes"]["selected_options"]
+    if len(boxes) == 1 and boxes[0]["value"] == "value-1":
         will_behave = True
     await bolt.client.chat_postMessage(
         channel=admin_convo["channel"]["id"],
@@ -392,22 +414,11 @@ async def slack_event_endpoint(req: Request):
     return await bolt_handler.handle(req)
 
 
-@repeat_every(seconds=5 * 60, wait_first=True)
-async def change_active_stream():
-    global active_stream
-    streams = []
-    await db.connect()
-    for stream in await db.stream.find_many():
-        streams.append(stream.id)
-    if len(streams) == 0:
-        return
-    if active_stream not in streams:
-        active_stream = None
-    if active_stream is None:
-        active_stream = choice(streams)
-    else:
-        if streams.index(active_stream) + 1 == len(streams):
-            active_stream = streams[0]
-        else:
-            active_stream = streams[streams.index(active_stream) + 1]
-        bolt.client.chat_postMessage(channel="C07ERCGG989", text=f":partyparrot_wave1::partyparrot_wave2::partyparrot_wave3::partyparrot_wave4::partyparrot_wave5::partyparrot_wave6::partyparrot_wave7: Hey <@{(await db.stream.find_first(where={'id': active_stream})).user.slack_id}>, you're in focus right now! Remember to talk us through what you're doing!")  # type: ignore
+# @api.on_event("startup")
+# @repeat_every(seconds=5, wait_first=False,raise_exceptions=True)
+# async def change_active_stream() -> None:
+#     print('e')
+#     global active_stream
+#     with httpx.AsyncClient as client:
+#         streams = (await client.get("http://localhost:9997/v3/paths/list")).json["items"]
+#         active_stream = choice(streams)["name"]
