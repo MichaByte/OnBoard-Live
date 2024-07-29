@@ -9,6 +9,7 @@
       }[]
     | null = null;
   let activeStream: string;
+  let oldActiveStream: string | null = null;
   let newData:
     | {
         bytesSent: any;
@@ -19,7 +20,6 @@
       }[]
     | null = null;
   let activePaths: string[] = [];
-
   onMount(() => {
     const fetchData = async () => {
       try {
@@ -27,6 +27,10 @@
           "http://localhost:8000/api/v1/active_stream",
         );
         activeStream = (await activeStreamResponse.text()).replaceAll('"', "");
+        if (oldActiveStream !== null && oldActiveStream !== activeStream) {
+          window.location.reload();
+        }
+        oldActiveStream = activeStream;
         const pathListResponse = await fetch(
           "http://localhost:9997/v3/paths/list",
         );
@@ -83,7 +87,7 @@
 <div
   class="flex w-screen h-screen justify-items-center bg-transparent absolute top-0 left-0 overflow-hidden"
 >
-  <h2 class="text-4xl text-center w-screen absolute">
+  <h2 class="text-4xl text-center w-screen absolute top-4">
     OnBoard Live Design Stream
   </h2>
   <img
@@ -121,15 +125,15 @@
       <div
         class="flex justify-center items-center w-screen h-1/4 absolute bottom-10"
       >
-        {#each pathData as path}
-          {#if path.ready && path.name !== activeStream}
+        {#each activePaths as path}
+          {#if path !== activeStream}
             <!-- svelte-ignore a11y-media-has-caption -->
             <video
               controls
               autoplay
               muted
-              id={path.name}
-              bind:this={videos[path.name]}
+              id={path}
+              bind:this={videos[path]}
               class="h-[20vh] w-auto mx-10"
             ></video>
           {/if}
@@ -143,7 +147,7 @@
       </p>
     </div>
   {/if}
-  <h2 class="absolute bottom-0 text-center w-screen text-xl">
+  <h2 class="absolute bottom-4 text-center w-screen text-xl">
     Join at <div
       style="display: inline-block; color: #338eda; text-decoration-line: underline;"
     >
