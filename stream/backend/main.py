@@ -1,13 +1,14 @@
 import json
 import os
 from contextlib import asynccontextmanager
+from pickle import FALSE
 from random import choice
 from secrets import token_hex
 
 import httpx
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
@@ -15,6 +16,8 @@ from slack_bolt.async_app import AsyncAck, AsyncApp
 import asyncio
 
 load_dotenv()
+
+active_stream = ""
 
 
 async def update_active():
@@ -28,15 +31,23 @@ async def update_active():
             if stream["ready"]:
                 active_streams.append(stream)
         try:
+            if active_stream == "":
+                active_stream = choice(active_streams)["name"]
             new_stream = choice(active_streams)["name"]
             while new_stream == active_stream:
                 new_stream = choice(active_streams)["name"]
+            await db.connect()
+            old_active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": active_stream})).user_id})  # type: ignore
+            await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!")  # type: ignore
             active_stream = new_stream
+            active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": active_stream})).user_id})  # type: ignore
+            await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{active_stream_user.slack_id}>, you're in focus! Make sure to tell us what you're working on!")  # type: ignore
+            await db.disconnect()
         except Exception:
-            pass
+            return
+
 
 async def init_active_update_task():
-    global active_stream
     while True:
         asyncio.create_task(update_active())
         await asyncio.sleep(5 * 60)
@@ -56,7 +67,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-api = FastAPI(lifespan=lifespan)
+api = FastAPI(lifespan=lifespan)  # type: ignore
 
 api.add_middleware(
     CORSMiddleware,
@@ -72,8 +83,6 @@ bolt = AsyncApp(
 )
 
 bolt_handler = AsyncSlackRequestHandler(bolt)
-
-active_stream = None
 
 
 @api.get("/api/v1/stream_key/{stream_key}")
@@ -120,6 +129,13 @@ async def handle_app_home_opened_events(body, logger, event, client):
             ],
         },
     )
+
+
+@bolt.event("message")
+async def handle_message(event):
+    if event["channel"] == "C07ERCGG989":
+        print(event)
+        await bolt.client.chat_delete(channel="C07ERCGG989", ts=event["ts"])
 
 
 @bolt.action("deny")
@@ -180,7 +196,6 @@ async def approve(ack, body):
     )
     await bolt.client.chat_postMessage(
         channel=sumbitter_convo["channel"]["id"],
-        text=f"Your application has been approved! Your stream key is `{new_stream.key}`. Keep this safe and do not share it with anyone!",
     )
     await db.disconnect()
 
@@ -306,6 +321,7 @@ async def apply(ack: AsyncAck, command):
                     },
                     json={
                         "trigger_id": command["trigger_id"],
+                        "unfurl_media": False,
                         "view": {
                             "type": "modal",
                             "callback_id": "apply",
@@ -354,8 +370,72 @@ async def apply(ack: AsyncAck, command):
                                 {
                                     "type": "section",
                                     "text": {
+                                        "type": "plain_text",
+                                        "text": "As a participant in OnBoard Live, you must make sure that all your behavior on stream represents our values.",
+                                        "emoji": True,
+                                    },
+                                },
+                                {
+                                    "type": "rich_text",
+                                    "elements": [
+                                        {
+                                            "type": "rich_text_section",
+                                            "elements": [
+                                                {
+                                                    "type": "text",
+                                                    "text": "Examples of unacceptable behavior include (but are not limited to):\n",
+                                                }
+                                            ],
+                                        },
+                                        {
+                                            "type": "rich_text_list",
+                                            "style": "bullet",
+                                            "elements": [
+                                                {
+                                                    "type": "rich_text_section",
+                                                    "elements": [
+                                                        {
+                                                            "type": "text",
+                                                            "text": "Streaming inappropriate content or content that is unrelated to PCB design",
+                                                        }
+                                                    ],
+                                                },
+                                                {
+                                                    "type": "rich_text_section",
+                                                    "elements": [
+                                                        {
+                                                            "type": "text",
+                                                            "text": "Sharing your stream key with others",
+                                                        }
+                                                    ],
+                                                },
+                                                {
+                                                    "type": "rich_text_section",
+                                                    "elements": [
+                                                        {
+                                                            "type": "text",
+                                                            "text": "Trying to abuse the system",
+                                                        }
+                                                    ],
+                                                },
+                                                {
+                                                    "type": "rich_text_section",
+                                                    "elements": [
+                                                        {
+                                                            "type": "text",
+                                                            "text": "Streaming pre-recorded work or work that is not yours",
+                                                        }
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                {
+                                    "type": "section",
+                                    "text": {
                                         "type": "mrkdwn",
-                                        "text": "Examples of unacceptable behavior include (but are not limited to) streaming inappropriate content or content that is unrelated to PCB design, sharing your stream key with others, trying to abuse the system, streaming work that you did not do or is not actually live (i.e. pre-recorded). Inappropriate behavior may result in removal from the Hack Club Slack or other consequences, as stated in the <https://hackclub.com/conduct/|Code of Conduct>. Any use of your stream key is your responsibilty, so don't share it with anyone for any reason. Admins will never ask for your stream key. Please report any urgent rule violations by messaging <@U05C64XMMHV>. If they do not respond in 5 minutes, please ping <!subteam^S01E4DN8S0Y|fire-fighters>.",
+                                        "text": "Inappropriate behavior may result in removal from the Hack Club Slack or other consequences, as stated in the <https://hackclub.com/conduct/|Code of Conduct>. Any use of your stream key is your responsibilty, so don't share it with anyone for any reason. Admins will never ask for your stream key.\n\nPlease report any urgent rule violations by messaging <@U05C64XMMHV>. If they do not respond in 5 minutes, please ping <!subteam^S01E4DN8S0Y|fire-fighters>.",
                                     },
                                 },
                                 {
