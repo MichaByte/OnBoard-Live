@@ -1,39 +1,51 @@
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
-from pickle import FALSE
 from random import choice
 from secrets import token_hex
 
 import httpx
 import uvicorn
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, Response, Depends
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
-import asyncio
 
 load_dotenv()
 
-active_stream = ""
+active_stream = {}
+active_streams = []
 
+scheduler = AsyncIOScheduler()
 
 async def update_active():
     global active_stream
+    global active_streams
     async with httpx.AsyncClient() as client:
-        streams = (await client.get("http://localhost:9997/v3/paths/list")).json()[
+        streams_raw = (await client.get("http://localhost:9997/v3/paths/list")).json()[
             "items"
         ]
-        active_streams = []
+        streams = []
+        for stream in streams_raw:
+            streams.append({"name": stream["name"], "ready": stream["ready"]})
         for stream in streams:
-            if stream["ready"]:
+            if stream["ready"] and stream not in active_streams:
                 active_streams.append(stream)
+        print(active_streams)
         try:
-            if active_stream == "":
+            if len(active_streams) == 0:
+                print("No active streams")
+                return
+            if active_stream == {}:
                 active_stream = choice(active_streams)["name"]
             new_stream = choice(active_streams)["name"]
+            if len(active_streams) == 1:
+                return
             while new_stream == active_stream:
                 new_stream = choice(active_streams)["name"]
             await db.connect()
@@ -46,16 +58,46 @@ async def update_active():
         except Exception:
             return
 
-
-async def init_active_update_task():
-    while True:
-        asyncio.create_task(update_active())
-        await asyncio.sleep(5 * 60)
-
-
+async def check_for_new():
+    global active_stream
+    global active_streams
+    async with httpx.AsyncClient() as client:
+        streams_raw = (await client.get("http://localhost:9997/v3/paths/list")).json()[
+            "items"
+        ]
+        streams_have_changed = False
+        streams = []
+        for stream in streams_raw:
+            streams.append({"name": stream["name"], "ready": stream["ready"]})
+        for stream in streams:
+            for active_stream in active_streams:
+                if stream["name"] == active_stream["name"] and not stream["ready"]:
+                    active_streams.remove(active_stream)
+                    streams_have_changed = True
+            for active_stream in active_streams:
+                if stream["name"] == active_stream["name"] and not stream["ready"]:
+                    active_streams.remove(active_stream)
+                    streams_have_changed = True
+            if stream["ready"] and [s["name"] for s in streams] not in [s["name"] for s in active_streams]:
+                streams_have_changed = True
+                active_streams.append(stream)
+                new_active_streams = []
+                [new_active_streams.append(x) for x in active_streams if x not in new_active_streams]
+                active_streams = new_active_streams
+            if streams_have_changed:
+                print("Streams have changed!")
+                streams_have_changed = False
+                await update_active()
+                return
+        if len(active_streams) == 0:
+            print("No active streams")
+            active_stream = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(init_active_update_task())
+    await update_active()
+    scheduler.start()
+    scheduler.add_job(update_active, IntervalTrigger(minutes=5))
+    scheduler.add_job(check_for_new, IntervalTrigger(seconds=3))
     await db.connect()
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
@@ -65,6 +107,7 @@ async def lifespan(app: FastAPI):
             )
     await db.disconnect()
     yield
+    scheduler.shutdown()
 
 
 api = FastAPI(lifespan=lifespan)  # type: ignore
@@ -105,8 +148,7 @@ async def get_user_by_id(user_id: str):
 
 @api.get("/api/v1/active_stream")
 async def get_active_stream():
-    global active_stream
-    return active_stream
+    return active_stream["name"] if "name" in active_stream else ""
 
 
 @bolt.event("app_home_opened")
@@ -196,6 +238,16 @@ async def approve(ack, body):
     )
     await bolt.client.chat_postMessage(
         channel=sumbitter_convo["channel"]["id"],
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"Welcome to OnBoard Live! Your stream key is {new_stream.key}. To use your stream key the easy way, go to <https://live.onboard.hackclub.com/{new_stream.key}/publish|this link>. You can also use it in OBS with the server URL of rtmp://live.onboard.hackclub.com:1935",
+                    "emoji": True,
+                },
+            }
+        ],
     )
     await db.disconnect()
 
@@ -204,6 +256,9 @@ async def approve(ack, body):
 async def handle_application_submission(ack, body):
     await ack()
     user = body["user"]["id"]
+    print(user + "has applied")
+    with open("applicants.txt", "a") as f:
+        f.write(user + "\n")
     sumbitter_convo = await bolt.client.conversations_open(users=user, return_im=True)
     user_real_name = (await bolt.client.users_info(user=user))["user"]["real_name"]
     user_verified = ""
@@ -220,90 +275,97 @@ async def handle_application_submission(ack, body):
         )
     await bolt.client.chat_postMessage(
         channel=sumbitter_convo["channel"]["id"],
-        text=f"Your application has been submitted! We will review it shortly. Please do not send another application - If you haven't heard back in over 48 hours, or you forgot something in your application, please message <@{os.environ['ADMIN_SLACK_ID']}>! Here's a copy of your responses for your reference:\nSome info on your project(s): {body['view']['state']['values']['project-info']['project-info-body']['value']}{f'\nPlease fill out <https://forms.hackclub.com/eligibility?program=Onboard%20Live&slack_id={user}|the verification form>! We can only approve your application once this is done.' if not user_verified else ''}",
+        text=f"Your application has been submitted! We will review it shortly. Please do not send another application - If you haven't heard back in over 48 hours, or you forgot something in your application, please message <@{os.environ['ADMIN_SLACK_ID']}>! Here's a copy of your responses for your reference:\nSome info on your project(s): {body['view']['state']['values']['project-info']['project-info-body']['value']}\n{f'Please fill out <https://forms.hackclub.com/eligibility?program=Onboard%20Live&slack_id={user}|the verification form>! We can only approve your application once this is done.' if not user_verified else ''}",
     )
     admin_convo = await bolt.client.conversations_open(
         users=os.environ["ADMIN_SLACK_ID"], return_im=True
     )
-    will_behave = False
-    boxes = body["view"]["state"]["values"]["c+wGI"]["checkboxes"]["selected_options"]
-    if len(boxes) == 1 and boxes[0]["value"] == "value-1":
-        will_behave = True
-    await bolt.client.chat_postMessage(
-        channel=admin_convo["channel"]["id"],
-        text="New OnBoard Live application!",
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": ":siren-real: New OnBoard Live application! :siren-real:",
+    will_behave = True
+    print(body["view"]["state"]["values"])
+    # boxes = body["view"]["state"]["values"]["kAgeY"]["checkboxes"]["selected_options"]
+    # if len(boxes) == 1 and boxes[0]["value"] == "value-1":
+    #     will_behave = True
+    print(
+        await bolt.client.chat_postMessage(
+            channel=os.environ["ADMIN_SLACK_ID"],
+            text="New OnBoard Live application!",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":siren-real: New OnBoard Live application! :siren-real:",
+                    },
                 },
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "plain_text",
-                    "text": f":technologist: Name: {user_real_name}",
-                    "emoji": True,
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f":technologist: Name: {user_real_name}",
+                        "emoji": True,
+                    },
                 },
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "plain_text",
-                    "text": f":white_check_mark: Is verified: {user_verified}",
-                    "emoji": True,
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f":white_check_mark: Is verified: {user_verified}",
+                        "emoji": True,
+                    },
                 },
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "plain_text",
-                    "text": f":hammer_and_wrench: Will make: {body['view']['state']['values']['project-info']['project-info-body']['value']}",
-                    "emoji": True,
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f":hammer_and_wrench: Will make: {body['view']['state']['values']['project-info']['project-info-body']['value']}",
+                        "emoji": True,
+                    },
                 },
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "plain_text",
-                    "text": f":pray: Will behave on stream: {will_behave}",
-                    "emoji": True,
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f":pray: Will behave on stream: {will_behave}",
+                        "emoji": True,
+                    },
                 },
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"Slack ID: {user}",
-                    "emoji": True,
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"Slack ID: {user}",
+                        "emoji": True,
+                    },
                 },
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "emoji": True,
-                            "text": "Approve",
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "emoji": True,
+                                "text": "Approve",
+                            },
+                            "style": "primary",
+                            "value": "approve",
+                            "action_id": "approve",
                         },
-                        "style": "primary",
-                        "value": "approve",
-                        "action_id": "approve",
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "emoji": True, "text": "Deny"},
-                        "style": "danger",
-                        "value": "deny",
-                        "action_id": "deny",
-                    },
-                ],
-            },
-        ],
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "emoji": True,
+                                "text": "Deny",
+                            },
+                            "style": "danger",
+                            "value": "deny",
+                            "action_id": "deny",
+                        },
+                    ],
+                },
+            ],
+        )
     )
 
 
