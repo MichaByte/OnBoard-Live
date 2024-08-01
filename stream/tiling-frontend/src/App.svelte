@@ -79,7 +79,7 @@
 >
   <div class="gradient"></div>
 </div>
-<h2 class="text-4xl text-center">OnBoard Live Design Stream</h2>
+<h2 class="text-4xl text-center mt-4">OnBoard Live Design Stream</h2>
 <img
   class="absolute top-0 left-0 w-48"
   src="https://assets.hackclub.com/flag-orpheus-left.svg"
