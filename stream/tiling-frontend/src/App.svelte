@@ -80,7 +80,7 @@
 >
   <div class="gradient"></div>
 </div>
-<h2 class="text-4xl text-center">OnBoard Live Design Stream</h2>
+<h2 class="text-4xl text-center mt-2">OnBoard Live Design Stream</h2>
 <img
   class="absolute top-0 left-0 w-48"
   src="https://assets.hackclub.com/flag-orpheus-left.svg"
@@ -134,7 +134,7 @@
   {:else}
     <div class="text-center text-4xl absolute w-screen h-screen top-1/2">
       <p>
-        No one is here yet!<br /> Check back later
+        No one is here yet!<br /> Check back later.
       </p>
     </div>
   {/if}
@@ -142,7 +142,7 @@
     Join at <div
       style="display: inline-block; color: #338eda; text-decoration-line: underline;"
     >
-      https://hack.club/onboard-live
+      hack.club/onboard-live
     </div>
   </h2>
 </div>
