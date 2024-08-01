@@ -36,7 +36,6 @@ async def update_active():
         for stream in streams:
             if stream["ready"] and stream not in active_streams:
                 active_streams.append(stream)
-        print(active_streams)
         if len(active_streams) == 0:
             print("No active streams")
             return
@@ -61,7 +60,6 @@ async def update_active():
         except Exception as e:
             print(e)
         print(f"trying to find user associated with stream {active_stream['name']}")
-        print(await db.stream.find_many())
         old_active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
         await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!")  # type: ignore
         active_stream = new_stream
@@ -95,25 +93,6 @@ async def check_for_new():
         for stream in streams_simple:
             if stream not in active_streams_simple:
                 active_streams.append({"name": stream, "ready": True})
-        # for stream in streams:
-        #     for i in active_streams:
-        #         if stream["name"] == i["name"] and not i["ready"]:
-        #             print(f"removing stream that is no longer ready: {i["name"]}")
-        #             active_streams.remove(i)
-        #             active_stream = choice(active_streams)
-        #     for i in active_streams:
-        #         if stream["name"] == i["name"] and not stream["ready"]:
-        #             active_streams.remove(i)
-        #             if active_stream == stream["name"]:
-        #                 active_stream = choice(active_streams)
-        #     active_streams_simple = []
-        #     for i in active_streams:
-        #         active_streams_simple.append(i["name"])
-        #     if stream["ready"] and stream["name"] not in active_streams_simple:
-        #         active_streams.append(stream)
-        #         new_active_streams = []
-        #         [new_active_streams.append(x) for x in active_streams if x not in new_active_streams]
-        #         active_streams = new_active_streams
         if len(active_streams) == 0:
             print("No active streams")
             active_stream = {}
@@ -278,9 +257,6 @@ async def approve(ack, body):
 async def handle_application_submission(ack, body):
     await ack()
     user = body["user"]["id"]
-    print(user + "has applied")
-    with open("applicants.txt", "a") as f:
-        f.write(user + "\n")
     sumbitter_convo = await bolt.client.conversations_open(users=user, return_im=True)
     user_real_name = (await bolt.client.users_info(user=user))["user"]["real_name"]
     user_verified = ""
@@ -303,91 +279,88 @@ async def handle_application_submission(ack, body):
         users=os.environ["ADMIN_SLACK_ID"], return_im=True
     )
     will_behave = True
-    print(body["view"]["state"]["values"])
     # boxes = body["view"]["state"]["values"]["kAgeY"]["checkboxes"]["selected_options"]
     # if len(boxes) == 1 and boxes[0]["value"] == "value-1":
     #     will_behave = True
-    print(
-        await bolt.client.chat_postMessage(
-            channel=os.environ["ADMIN_SLACK_ID"],
-            text="New OnBoard Live application!",
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": ":siren-real: New OnBoard Live application! :siren-real:",
-                    },
+    await bolt.client.chat_postMessage(
+        channel=os.environ["ADMIN_SLACK_ID"],
+        text="New OnBoard Live application!",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":siren-real: New OnBoard Live application! :siren-real:",
                 },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "plain_text",
-                        "text": f":technologist: Name: {user_real_name}",
-                        "emoji": True,
-                    },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": f":technologist: Name: {user_real_name}",
+                    "emoji": True,
                 },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "plain_text",
-                        "text": f":white_check_mark: Is verified: {user_verified}",
-                        "emoji": True,
-                    },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": f":white_check_mark: Is verified: {user_verified}",
+                    "emoji": True,
                 },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "plain_text",
-                        "text": f":hammer_and_wrench: Will make: {body['view']['state']['values']['project-info']['project-info-body']['value']}",
-                        "emoji": True,
-                    },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": f":hammer_and_wrench: Will make: {body['view']['state']['values']['project-info']['project-info-body']['value']}",
+                    "emoji": True,
                 },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "plain_text",
-                        "text": f":pray: Will behave on stream: {will_behave}",
-                        "emoji": True,
-                    },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": f":pray: Will behave on stream: {will_behave}",
+                    "emoji": True,
                 },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "plain_text",
-                        "text": f"Slack ID: {user}",
-                        "emoji": True,
-                    },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"Slack ID: {user}",
+                    "emoji": True,
                 },
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "emoji": True,
-                                "text": "Approve",
-                            },
-                            "style": "primary",
-                            "value": "approve",
-                            "action_id": "approve",
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "emoji": True,
+                            "text": "Approve",
                         },
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "emoji": True,
-                                "text": "Deny",
-                            },
-                            "style": "danger",
-                            "value": "deny",
-                            "action_id": "deny",
+                        "style": "primary",
+                        "value": "approve",
+                        "action_id": "approve",
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "emoji": True,
+                            "text": "Deny",
                         },
-                    ],
-                },
-            ],
-        )
+                        "style": "danger",
+                        "value": "deny",
+                        "action_id": "deny",
+                    },
+                ],
+            },
+        ],
     )
 
 
@@ -395,182 +368,180 @@ async def handle_application_submission(ack, body):
 async def apply(ack: AsyncAck, command):
     await ack()
     async with httpx.AsyncClient() as client:
-        print(
-            (
-                await client.post(
-                    "https://slack.com/api/views.open",
-                    headers={
-                        "Authorization": f"Bearer {os.environ['SLACK_TOKEN']}",
-                        "Content-type": "application/json; charset=utf-8",
-                    },
-                    json={
-                        "trigger_id": command["trigger_id"],
-                        "unfurl_media": False,
-                        "view": {
-                            "type": "modal",
-                            "callback_id": "apply",
-                            "title": {
-                                "type": "plain_text",
-                                "text": "OnBoard Live Application",
-                                "emoji": True,
+        (
+            await client.post(
+                "https://slack.com/api/views.open",
+                headers={
+                    "Authorization": f"Bearer {os.environ['SLACK_TOKEN']}",
+                    "Content-type": "application/json; charset=utf-8",
+                },
+                json={
+                    "trigger_id": command["trigger_id"],
+                    "unfurl_media": False,
+                    "view": {
+                        "type": "modal",
+                        "callback_id": "apply",
+                        "title": {
+                            "type": "plain_text",
+                            "text": "OnBoard Live Application",
+                            "emoji": True,
+                        },
+                        "submit": {
+                            "type": "plain_text",
+                            "text": "Submit",
+                            "emoji": True,
+                        },
+                        "close": {
+                            "type": "plain_text",
+                            "text": "Cancel",
+                            "emoji": True,
+                        },
+                        "blocks": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "Welcome to OnBoard Live!\n\n*Please make sure to read this form thoroughly.*\n\nWe can't wait to see what you make!\n\n_Depending on your screen, you might need to scroll down to see the whole form._",
+                                },
                             },
-                            "submit": {
-                                "type": "plain_text",
-                                "text": "Submit",
-                                "emoji": True,
+                            {"type": "divider"},
+                            {
+                                "type": "input",
+                                "block_id": "project-info",
+                                "element": {
+                                    "action_id": "project-info-body",
+                                    "type": "plain_text_input",
+                                    "multiline": True,
+                                    "placeholder": {
+                                        "type": "plain_text",
+                                        "text": "I want to make...",
+                                    },
+                                },
+                                "label": {
+                                    "type": "plain_text",
+                                    "text": "What do you plan on making?\n\nNote that you can make whatever you want, this is just so we know what level you're at!",
+                                    "emoji": True,
+                                },
                             },
-                            "close": {
-                                "type": "plain_text",
-                                "text": "Cancel",
-                                "emoji": True,
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "As a participant in OnBoard Live, you must make sure that all your behavior on stream represents our values.",
+                                    "emoji": True,
+                                },
                             },
-                            "blocks": [
-                                {
-                                    "type": "section",
-                                    "text": {
-                                        "type": "mrkdwn",
-                                        "text": "Welcome to OnBoard Live!\n\n*Please make sure to read this form thoroughly.*\n\nWe can't wait to see what you make!\n\n_Depending on your screen, you might need to scroll down to see the whole form._",
-                                    },
-                                },
-                                {"type": "divider"},
-                                {
-                                    "type": "input",
-                                    "block_id": "project-info",
-                                    "element": {
-                                        "action_id": "project-info-body",
-                                        "type": "plain_text_input",
-                                        "multiline": True,
-                                        "placeholder": {
-                                            "type": "plain_text",
-                                            "text": "I want to make...",
-                                        },
-                                    },
-                                    "label": {
-                                        "type": "plain_text",
-                                        "text": "What do you plan on making?\n\nNote that you can make whatever you want, this is just so we know what level you're at!",
-                                        "emoji": True,
-                                    },
-                                },
-                                {
-                                    "type": "section",
-                                    "text": {
-                                        "type": "plain_text",
-                                        "text": "As a participant in OnBoard Live, you must make sure that all your behavior on stream represents our values.",
-                                        "emoji": True,
-                                    },
-                                },
-                                {
-                                    "type": "rich_text",
-                                    "elements": [
-                                        {
-                                            "type": "rich_text_section",
-                                            "elements": [
-                                                {
-                                                    "type": "text",
-                                                    "text": "Examples of unacceptable behavior include (but are not limited to):\n",
-                                                }
-                                            ],
-                                        },
-                                        {
-                                            "type": "rich_text_list",
-                                            "style": "bullet",
-                                            "elements": [
-                                                {
-                                                    "type": "rich_text_section",
-                                                    "elements": [
-                                                        {
-                                                            "type": "text",
-                                                            "text": "Streaming inappropriate content or content that is unrelated to PCB design",
-                                                        }
-                                                    ],
-                                                },
-                                                {
-                                                    "type": "rich_text_section",
-                                                    "elements": [
-                                                        {
-                                                            "type": "text",
-                                                            "text": "Sharing your stream key with others",
-                                                        }
-                                                    ],
-                                                },
-                                                {
-                                                    "type": "rich_text_section",
-                                                    "elements": [
-                                                        {
-                                                            "type": "text",
-                                                            "text": "Trying to abuse the system",
-                                                        }
-                                                    ],
-                                                },
-                                                {
-                                                    "type": "rich_text_section",
-                                                    "elements": [
-                                                        {
-                                                            "type": "text",
-                                                            "text": "Streaming pre-recorded work or work that is not yours",
-                                                        }
-                                                    ],
-                                                },
-                                            ],
-                                        },
-                                    ],
-                                },
-                                {
-                                    "type": "section",
-                                    "text": {
-                                        "type": "mrkdwn",
-                                        "text": "Inappropriate behavior may result in removal from the Hack Club Slack or other consequences, as stated in the <https://hackclub.com/conduct/|Code of Conduct>. Any use of your stream key is your responsibilty, so don't share it with anyone for any reason. Admins will never ask for your stream key.\n\nPlease report any urgent rule violations by messaging <@U05C64XMMHV>. If they do not respond in 5 minutes, please ping <!subteam^S01E4DN8S0Y|fire-fighters>.",
-                                    },
-                                },
-                                {
-                                    "type": "section",
-                                    "text": {
-                                        "type": "plain_text",
-                                        "text": "Confirm that you have read the above by following these instructions:",
-                                    },
-                                    "accessory": {
-                                        "type": "checkboxes",
-                                        "options": [
+                            {
+                                "type": "rich_text",
+                                "elements": [
+                                    {
+                                        "type": "rich_text_section",
+                                        "elements": [
                                             {
-                                                "text": {
-                                                    "type": "plain_text",
-                                                    "text": "To agree that you will be well-behaved while you're live, DO NOT check this box. Instead, check the one below.",
-                                                    "emoji": True,
-                                                },
-                                                "description": {
-                                                    "type": "mrkdwn",
-                                                    "text": "This is to make sure you're paying attention!",
-                                                },
-                                                "value": "value-0",
+                                                "type": "text",
+                                                "text": "Examples of unacceptable behavior include (but are not limited to):\n",
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "type": "rich_text_list",
+                                        "style": "bullet",
+                                        "elements": [
+                                            {
+                                                "type": "rich_text_section",
+                                                "elements": [
+                                                    {
+                                                        "type": "text",
+                                                        "text": "Streaming inappropriate content or content that is unrelated to PCB design",
+                                                    }
+                                                ],
                                             },
                                             {
-                                                "text": {
-                                                    "type": "plain_text",
-                                                    "text": "To agree that you will be well-behaved while you're live, check this box.",
-                                                    "emoji": True,
-                                                },
-                                                "value": "value-1",
+                                                "type": "rich_text_section",
+                                                "elements": [
+                                                    {
+                                                        "type": "text",
+                                                        "text": "Sharing your stream key with others",
+                                                    }
+                                                ],
+                                            },
+                                            {
+                                                "type": "rich_text_section",
+                                                "elements": [
+                                                    {
+                                                        "type": "text",
+                                                        "text": "Trying to abuse the system",
+                                                    }
+                                                ],
+                                            },
+                                            {
+                                                "type": "rich_text_section",
+                                                "elements": [
+                                                    {
+                                                        "type": "text",
+                                                        "text": "Streaming pre-recorded work or work that is not yours",
+                                                    }
+                                                ],
                                             },
                                         ],
-                                        "action_id": "checkboxes",
                                     },
+                                ],
+                            },
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "Inappropriate behavior may result in removal from the Hack Club Slack or other consequences, as stated in the <https://hackclub.com/conduct/|Code of Conduct>. Any use of your stream key is your responsibilty, so don't share it with anyone for any reason. Admins will never ask for your stream key.\n\nPlease report any urgent rule violations by messaging <@U05C64XMMHV>. If they do not respond in 5 minutes, please ping <!subteam^S01E4DN8S0Y|fire-fighters>.",
                                 },
-                                {"type": "divider"},
-                                {
-                                    "type": "context",
-                                    "elements": [
+                            },
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Confirm that you have read the above by following these instructions:",
+                                },
+                                "accessory": {
+                                    "type": "checkboxes",
+                                    "options": [
                                         {
-                                            "type": "mrkdwn",
-                                            "text": "Please ask <@U05C64XMMHV> for help if you need it!",
-                                        }
+                                            "text": {
+                                                "type": "plain_text",
+                                                "text": "To agree that you will be well-behaved while you're live, DO NOT check this box. Instead, check the one below.",
+                                                "emoji": True,
+                                            },
+                                            "description": {
+                                                "type": "mrkdwn",
+                                                "text": "This is to make sure you're paying attention!",
+                                            },
+                                            "value": "value-0",
+                                        },
+                                        {
+                                            "text": {
+                                                "type": "plain_text",
+                                                "text": "To agree that you will be well-behaved while you're live, check this box.",
+                                                "emoji": True,
+                                            },
+                                            "value": "value-1",
+                                        },
                                     ],
+                                    "action_id": "checkboxes",
                                 },
-                            ],
-                        },
+                            },
+                            {"type": "divider"},
+                            {
+                                "type": "context",
+                                "elements": [
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": "Please ask <@U05C64XMMHV> for help if you need it!",
+                                    }
+                                ],
+                            },
+                        ],
                     },
-                )
-            ).text
-        )
+                },
+            )
+        ).text
 
 
 @bolt.action("checkboxes")
@@ -581,13 +552,3 @@ async def handle_some_action(ack):
 @api.post("/slack/events")
 async def slack_event_endpoint(req: Request):
     return await bolt_handler.handle(req)
-
-
-# @api.on_event("startup")
-# @repeat_every(seconds=5, wait_first=False,raise_exceptions=True)
-# async def change_active_stream() -> None:
-#     print('e')
-#     global active_stream
-#     with httpx.AsyncClient as client:
-#         streams = (await client.get("http://localhost:9997/v3/paths/list")).json["items"]
-#         active_stream = choice(streams)["name"]
