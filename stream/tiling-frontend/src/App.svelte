@@ -133,11 +133,11 @@
   {:else}
     <div class="text-center text-4xl absolute w-screen h-screen top-1/2">
       <p>
-        No one is here yet!<br /> Check back later
+        No one is here yet!<br /> Check back later.
       </p>
     </div>
   {/if}
-  <h2 class="absolute bottom-4 text-center w-screen text-xl">
+  <h2 class="absolute bottom-4 text-center w-screen text-3xl">
     Join at <div
       style="display: inline-block; color: #338eda; text-decoration-line: underline;"
     >
@@ -147,6 +147,9 @@
 </div>
 
 <style>
+  :root{
+    overflow: hidden;
+  }
   .gradient {
     width: 100vw;
     height: 100vh;
