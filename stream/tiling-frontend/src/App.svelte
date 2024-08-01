@@ -73,7 +73,8 @@
     };
   });
 </script>
-
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
 <div
   style="width: 100vw; height: 100vh; overflow: hidden; position: absolute; top: 0; left: 0"
 >
