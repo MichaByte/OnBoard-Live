@@ -1,16 +1,15 @@
 import json
-import logging
 import os
 from contextlib import asynccontextmanager
 from random import choice
 from secrets import token_hex
+from typing import Dict, List
 
 import httpx
-import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
@@ -18,10 +17,11 @@ from slack_bolt.async_app import AsyncAck, AsyncApp
 
 load_dotenv()
 
-active_stream = {}
-active_streams = []
+active_stream: Dict[str, str | bool] = {}
+active_streams: List[Dict[str, str | bool]] = []
 
 scheduler = AsyncIOScheduler()
+
 
 async def update_active():
     global active_stream
@@ -37,26 +37,38 @@ async def update_active():
             if stream["ready"] and stream not in active_streams:
                 active_streams.append(stream)
         print(active_streams)
-        try:
-            if len(active_streams) == 0:
-                print("No active streams")
-                return
-            if active_stream == {}:
-                active_stream = choice(active_streams)["name"]
-            new_stream = choice(active_streams)["name"]
-            if len(active_streams) == 1:
-                return
-            while new_stream == active_stream:
-                new_stream = choice(active_streams)["name"]
-            await db.connect()
-            old_active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": active_stream})).user_id})  # type: ignore
-            await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!")  # type: ignore
-            active_stream = new_stream
-            active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": active_stream})).user_id})  # type: ignore
-            await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{active_stream_user.slack_id}>, you're in focus! Make sure to tell us what you're working on!")  # type: ignore
-            await db.disconnect()
-        except Exception:
+        if len(active_streams) == 0:
+            print("No active streams")
             return
+        if active_stream == {}:
+            print("No current active stream, picking new one...")
+            active_stream = choice(active_streams)
+            return
+        if len(active_streams) == 1:
+            return
+        print(
+            f"starting to pick new active stream (switching away from {active_stream['name']})"
+        )
+        new_stream = choice(active_streams)
+        while new_stream["name"] == active_stream["name"]:
+            print(
+                f"re-attemppting to pick active stream since we picked {new_stream} again"
+            )
+            new_stream = choice(active_streams)
+        print(f"found new stream to make active: {new_stream}")
+        try:
+            await db.connect()
+        except Exception as e:
+            print(e)
+        print(f"trying to find user associated with stream {active_stream['name']}")
+        print(await db.stream.find_many())
+        old_active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
+        await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!")  # type: ignore
+        active_stream = new_stream
+        active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
+        await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{active_stream_user.slack_id}>, you're in focus! Make sure to tell us what you're working on!")  # type: ignore
+        await db.disconnect()
+
 
 async def check_for_new():
     global active_stream
@@ -65,40 +77,58 @@ async def check_for_new():
         streams_raw = (await client.get("http://localhost:9997/v3/paths/list")).json()[
             "items"
         ]
-        streams_have_changed = False
-        streams = []
+        streams_simple = []
         for stream in streams_raw:
-            streams.append({"name": stream["name"], "ready": stream["ready"]})
-        for stream in streams:
-            for active_stream in active_streams:
-                if stream["name"] == active_stream["name"] and not stream["ready"]:
-                    active_streams.remove(active_stream)
-                    streams_have_changed = True
-            for active_stream in active_streams:
-                if stream["name"] == active_stream["name"] and not stream["ready"]:
-                    active_streams.remove(active_stream)
-                    streams_have_changed = True
-            if stream["ready"] and [s["name"] for s in streams] not in [s["name"] for s in active_streams]:
-                streams_have_changed = True
-                active_streams.append(stream)
-                new_active_streams = []
-                [new_active_streams.append(x) for x in active_streams if x not in new_active_streams]
-                active_streams = new_active_streams
-            if streams_have_changed:
-                print("Streams have changed!")
-                streams_have_changed = False
-                await update_active()
-                return
+            if stream["ready"]:
+                streams_simple.append(stream["name"])
+        active_streams_simple = []
+        for i in active_streams:
+            active_streams_simple.append(i["name"])
+            if active_stream == {}:
+                active_stream = {"name": i["name"], "ready": True}
+        for stream in active_streams_simple:
+            if stream not in streams_simple:
+                active_streams.remove(
+                    next(item for item in active_streams if item["name"] == stream)
+                )
+                active_stream = choice(active_streams)
+        for stream in streams_simple:
+            if stream not in active_streams_simple:
+                active_streams.append({"name": stream, "ready": True})
+        # for stream in streams:
+        #     for i in active_streams:
+        #         if stream["name"] == i["name"] and not i["ready"]:
+        #             print(f"removing stream that is no longer ready: {i["name"]}")
+        #             active_streams.remove(i)
+        #             active_stream = choice(active_streams)
+        #     for i in active_streams:
+        #         if stream["name"] == i["name"] and not stream["ready"]:
+        #             active_streams.remove(i)
+        #             if active_stream == stream["name"]:
+        #                 active_stream = choice(active_streams)
+        #     active_streams_simple = []
+        #     for i in active_streams:
+        #         active_streams_simple.append(i["name"])
+        #     if stream["ready"] and stream["name"] not in active_streams_simple:
+        #         active_streams.append(stream)
+        #         new_active_streams = []
+        #         [new_active_streams.append(x) for x in active_streams if x not in new_active_streams]
+        #         active_streams = new_active_streams
         if len(active_streams) == 0:
             print("No active streams")
             active_stream = {}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await update_active()
     scheduler.start()
-    scheduler.add_job(update_active, IntervalTrigger(minutes=5))
+    scheduler.add_job(update_active, IntervalTrigger(seconds=5 * 60))
     scheduler.add_job(check_for_new, IntervalTrigger(seconds=3))
-    await db.connect()
+    try:
+        await db.connect()
+    except Exception:
+        pass
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
             await client.post(
@@ -173,13 +203,6 @@ async def handle_app_home_opened_events(body, logger, event, client):
     )
 
 
-@bolt.event("message")
-async def handle_message(event):
-    if event["channel"] == "C07ERCGG989":
-        print(event)
-        await bolt.client.chat_delete(channel="C07ERCGG989", ts=event["ts"])
-
-
 @bolt.action("deny")
 async def deny(ack, body):
     await ack()
@@ -206,7 +229,10 @@ async def deny(ack, body):
 @bolt.action("approve")
 async def approve(ack, body):
     await ack()
-    await db.connect()
+    try:
+        await db.connect()
+    except Exception:
+        pass
     message = body["message"]
     applicant_slack_id = message["blocks"][len(message) - 3]["text"]["text"].split(
         ": "
@@ -236,18 +262,14 @@ async def approve(ack, body):
     sumbitter_convo = await bolt.client.conversations_open(
         users=applicant_slack_id, return_im=True
     )
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            "http://127.0.0.1:9997/v3/config/paths/add/" + new_stream.key,
+            json={"name": new_stream.key},
+        )
     await bolt.client.chat_postMessage(
         channel=sumbitter_convo["channel"]["id"],
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"Welcome to OnBoard Live! Your stream key is {new_stream.key}. To use your stream key the easy way, go to <https://live.onboard.hackclub.com/{new_stream.key}/publish|this link>. You can also use it in OBS with the server URL of rtmp://live.onboard.hackclub.com:1935",
-                    "emoji": True,
-                },
-            }
-        ],
+        text=f"Welcome to OnBoard Live! Your stream key is {new_stream.key}. To use your stream key the easy way, go to <https://live.onboard.hackclub.com/{new_stream.key}/publish|this link>. You can also use it in OBS with the server URL of rtmp://live.onboard.hackclub.com:1935",
     )
     await db.disconnect()
 

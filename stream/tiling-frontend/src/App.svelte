@@ -8,17 +8,13 @@
         name: string;
       }[]
     | null = null;
-  let activeStream: string;
-  let oldActiveStream: string | null = null;
-  let newData:
-    | {
-        bytesSent: any;
-        bytesReceived: any;
-        readyTime: any;
-        ready: boolean;
-        name: string;
-      }[]
-    | null = null;
+  $: activeStream = "";
+  $: oldActiveStream = "";
+  let newData: {
+    ready: boolean;
+    name: string;
+    isActive: boolean;
+  }[] = [];
   let activePaths: string[] = [];
   onMount(() => {
     const fetchData = async () => {
@@ -27,33 +23,32 @@
           "http://localhost:8000/api/v1/active_stream",
         );
         activeStream = (await activeStreamResponse.text()).replaceAll('"', "");
-        if (oldActiveStream !== null && oldActiveStream !== activeStream) {
-          window.location.reload();
-        }
+        // if (oldActiveStream !== null && oldActiveStream !== activeStream) {
+        //   window.location.reload();
+        // }
         oldActiveStream = activeStream;
-        const pathListResponse = await fetch(
-          "http://localhost:9997/v3/paths/list",
-        );
-        newData = (await pathListResponse.json())["items"];
-        if (newData) {
-          for (let i = 0; i < newData.length; i++) {
-            delete newData[i].readyTime;
-            delete newData[i].bytesReceived;
-            delete newData[i].bytesSent;
+        const pathListResponse = await (
+          await fetch("http://localhost:9997/v3/paths/list")
+        ).json();
+        console.log(pathListResponse);
+        newData = [];
+        for (let i = 0; i < pathListResponse["items"].length; i++) {
+          if (pathListResponse["items"][i]["ready"] === false) {
           }
+          newData.push({
+            name: pathListResponse["items"][i]["name"],
+            ready: pathListResponse["items"][i]["ready"],
+            isActive: pathListResponse["items"][i]["name"] === activeStream,
+          });
         }
+        console.log(newData);
         videos = Object.fromEntries(
           Object.entries(videos).filter(([_, v]) => v != null),
         );
-
+        console.log(newData);
         if (JSON.stringify(newData) !== JSON.stringify(pathData)) {
           console.log("Data changed");
           pathData = newData;
-          for (let pathIdx = 0; pathIdx < pathData?.length! - 1; pathIdx++) {
-            if (pathData![pathIdx].ready) {
-              activePaths.push(pathData![pathIdx].name);
-            }
-          }
           setTimeout(() => {
             for (const video in videos) {
               const hlsInstance = new hls({ progressive: false });
@@ -80,61 +75,56 @@
 </script>
 
 <div
-  style="width: 100vw; height: 100vw; overflow: hidden; position: absolute; top: 0; left: 0"
+  style="width: 100vw; height: 100vh; overflow: hidden; position: absolute; top: 0; left: 0"
 >
   <div class="gradient"></div>
 </div>
-<div
-  class="flex w-screen h-screen justify-items-center bg-transparent absolute top-0 left-0 overflow-hidden"
->
-  <h2 class="text-4xl text-center w-screen absolute top-4">
-    OnBoard Live Design Stream
-  </h2>
-  <img
-    class="absolute top-0 left-0 w-48"
-    src="https://assets.hackclub.com/flag-orpheus-left.svg"
-    alt="Hack Club"
-  />
+<h2 class="text-4xl text-center">OnBoard Live Design Stream</h2>
+<img
+  class="absolute top-0 left-0 w-48"
+  src="https://assets.hackclub.com/flag-orpheus-left.svg"
+  alt="Hack Club"
+/>
+<div class="grid w-screen grid-rows-2 grid-cols-1 h-[90vh] justify-items-center bg-transparent mt-0">
   {#if pathData?.map((path) => path.ready).includes(true)}
     {#if activePaths.length == 1}
-      <div
-        class="flex justify-center items-center w-screen h-3/4 absolute top-20"
-      >
-        <!-- svelte-ignore a11y-media-has-caption -->
-        <video
-          controls
-          autoplay
-          id={activeStream}
-          bind:this={videos[activeStream]}
-          class="h-full w-auto"
-        ></video>
-      </div>
+      <!-- svelte-ignore a11y-media-has-caption -->
+      <video
+        controls
+        autoplay
+        id={activeStream}
+        bind:this={videos[activeStream]}
+        class="h-full w-auto"
+      ></video>
     {:else}
-      <div
-        class="flex justify-center items-center w-screen h-1/2 absolute top-20"
-      >
-        <!-- svelte-ignore a11y-media-has-caption -->
-        <video
-          controls
-          autoplay
-          id={activeStream}
-          bind:this={videos[activeStream]}
-          class="h-full w-auto"
-        ></video>
+      <div class="flex justify-center items-center w-auto h-[65vh] mt-5">
+        {#each newData as path}
+          {#if path.ready && path.name === activeStream}
+            <!-- svelte-ignore a11y-media-has-caption -->
+            <video
+              controls
+              autoplay
+              id={path.name}
+              bind:this={videos[path.name]}
+              class="max-h-[65vh] w-auto bg-red-500"
+            ></video>
+          {/if}
+        {/each}
       </div>
+
       <div
-        class="flex justify-center items-center w-screen h-1/4 absolute bottom-10"
+        class="flex items-center justify-center justify-items-center w-screen h-[25vh] bottom-12 absolute"
       >
-        {#each activePaths as path}
-          {#if path !== activeStream}
+        {#each newData as path}
+          {#if path.name !== activeStream && path.ready}
             <!-- svelte-ignore a11y-media-has-caption -->
             <video
               controls
               autoplay
               muted
-              id={path}
-              bind:this={videos[path]}
-              class="h-[20vh] w-auto mx-10"
+              id={path.name}
+              bind:this={videos[path.name]}
+              class="max-h-[25vh] mx-10"
             ></video>
           {/if}
         {/each}
@@ -163,6 +153,7 @@
     position: absolute;
     transform-origin: center;
     overflow: hidden;
+    z-index: -999;
     background: linear-gradient(
       45deg,
       rgba(236, 55, 80, 1) 0%,
