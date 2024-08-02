@@ -36,7 +36,7 @@ async def update_active():
         streams = []
         for stream in streams_raw:
             print(stream)
-            streams.append({"name": stream["name"], "ready": stream["ready"], "person_name": (await db.user.find_first_or_raise(where={"id":(await db.stream.find_first_or_raise(where={"key": str(stream["name"])})).user_id})).name.split(" ")[0]}) # type: ignore
+            streams.append({"name": stream["name"], "ready": stream["ready"], "person_name": (await db.user.find_first_or_raise(where={"id":(await db.stream.find_first_or_raise(where={"key": str(stream["name"])})).user_id})).name.split(" ")[0]})
         for stream in streams:
             if stream["ready"] and stream not in active_streams:
                 active_streams.append(stream)
