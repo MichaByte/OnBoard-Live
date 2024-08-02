@@ -85,7 +85,9 @@
   src="https://assets.hackclub.com/flag-orpheus-left.svg"
   alt="Hack Club"
 />
-<div class="grid w-screen grid-rows-2 grid-cols-1 h-[90vh] justify-items-center bg-transparent mt-0">
+<div
+  class="grid w-screen grid-rows-2 grid-cols-1 h-[90vh] justify-items-center bg-transparent mt-0"
+>
   {#if pathData?.map((path) => path.ready).includes(true)}
     {#if activePaths.length == 1}
       <!-- svelte-ignore a11y-media-has-caption -->
@@ -147,7 +149,7 @@
 </div>
 
 <style>
-  :root{
+  :root {
     overflow: hidden;
   }
   .gradient {
