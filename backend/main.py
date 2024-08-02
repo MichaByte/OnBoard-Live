@@ -146,15 +146,6 @@ async def get_stream_by_key(stream_key: str):
         stream if stream else Response(status_code=404, content="404: Stream not found")
     )
 
-
-@api.get("/api/v1/user/{user_id}")
-async def get_user_by_id(user_id: str):
-    await db.connect()
-    user = await db.user.find_first(where={"slack_id": user_id})
-    await db.disconnect()
-    return user if user else Response(status_code=404, content="404: User not found")
-
-
 @api.get("/api/v1/active_stream")
 async def get_active_stream():
     return active_stream["name"] if "name" in active_stream else ""
