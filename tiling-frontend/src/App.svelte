@@ -23,8 +23,9 @@
         const activeStreamResponse = await fetch(
           "http://localhost:8000/api/v1/active_stream",
         );
-        activeStream = (await activeStreamResponse.text()).replaceAll('"', "").split(",")[0];
-        activeStreamerName = (await activeStreamResponse.text()).replaceAll('"', "").split(",")[1];
+        const activeStreamResponseText = await activeStreamResponse.text()
+        activeStream = activeStreamResponseText.replaceAll('"', "").split(",")[0];
+        activeStreamerName = activeStreamResponseText.replaceAll('"', "").split(",")[1];
         // if (oldActiveStream !== null && oldActiveStream !== activeStream) {
         //   window.location.reload();
         // }
@@ -110,7 +111,7 @@
               autoplay
               id={path.name}
               bind:this={videos[path.name]}
-              class="max-h-[65vh] w-auto bg-red-500"
+              class="max-h-[65vh] w-auto"
             ></video>
           {/if}
         {/each}
