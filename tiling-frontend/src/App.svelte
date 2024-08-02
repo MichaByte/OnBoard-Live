@@ -9,6 +9,7 @@
       }[]
     | null = null;
   $: activeStream = "";
+  $: activeStreamerName = "";
   $: oldActiveStream = "";
   let newData: {
     ready: boolean;
@@ -22,7 +23,8 @@
         const activeStreamResponse = await fetch(
           "http://localhost:8000/api/v1/active_stream",
         );
-        activeStream = (await activeStreamResponse.text()).replaceAll('"', "");
+        activeStream = (await activeStreamResponse.text()).replaceAll('"', "").split(",")[0];
+        activeStreamerName = (await activeStreamResponse.text()).replaceAll('"', "").split(",")[1];
         // if (oldActiveStream !== null && oldActiveStream !== activeStream) {
         //   window.location.reload();
         // }

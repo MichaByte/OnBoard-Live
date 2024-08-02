@@ -27,12 +27,16 @@ async def update_active():
     global active_stream
     global active_streams
     async with httpx.AsyncClient() as client:
+        try:
+            await db.connect()
+        except: pass
         streams_raw = (await client.get("http://localhost:9997/v3/paths/list")).json()[
             "items"
         ]
         streams = []
         for stream in streams_raw:
-            streams.append({"name": stream["name"], "ready": stream["ready"]})
+            print(stream)
+            streams.append({"name": stream["name"], "ready": stream["ready"], "person_name": (await db.user.find_first_or_raise(where={"id":(await db.stream.find_first_or_raise(where={"key": str(stream["name"])})).user_id})).name.split(" ")[0]}) # type: ignore
         for stream in streams:
             if stream["ready"] and stream not in active_streams:
                 active_streams.append(stream)
@@ -55,10 +59,7 @@ async def update_active():
             )
             new_stream = choice(active_streams)
         print(f"found new stream to make active: {new_stream}")
-        try:
-            await db.connect()
-        except Exception as e:
-            print(e)
+
         print(f"trying to find user associated with stream {active_stream['name']}")
         old_active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
         await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!")  # type: ignore
@@ -148,7 +149,7 @@ async def get_stream_by_key(stream_key: str):
 
 @api.get("/api/v1/active_stream")
 async def get_active_stream():
-    return active_stream["name"] if "name" in active_stream else ""
+    return str(active_stream["name"]) + "," + str(active_stream["person_name"]) if "name" in active_stream else ""
 
 
 @bolt.event("app_home_opened")
