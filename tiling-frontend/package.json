@@ -25,5 +25,8 @@
     "hls.js": "^1.5.13",
     "unocss": "^0.61.3",
     "vite-plugin-singlefile": "^2.0.2"
-  }
+  },
+  "trustedDependencies": [
+    "svelte-preprocess"
+  ]
 }

@@ -1,0 +1,18 @@
+version: '2'
+
+services:
+  web-frontend:
+    build:
+    # build from Dockerfile
+      context: ./tiling-frontend
+      dockerfile: Dockerfile
+    volumes:
+      - tiling_frontend_build:/usr/src/app/dist
+  obs:
+    build:
+      context: ./obs
+      dockerfile: Dockerfile
+    volumes:
+      - tiling_frontend_build:/home/obs/html
+volumes:
+  tiling_frontend_build:

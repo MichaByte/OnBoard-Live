@@ -6,3 +6,4 @@ python-dotenv
 prisma
 fastapi-utils
 httpx
+obsws-python
