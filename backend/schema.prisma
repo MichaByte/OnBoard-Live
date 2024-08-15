@@ -1,7 +1,7 @@
 generator client {
   provider             = "prisma-client-py"
   interface            = "asyncio"
-  recursive_type_depth = 5
+  recursive_type_depth = "5"
 }
 
 datasource db {
@@ -23,6 +23,6 @@ model Stream {
   is_live    Boolean  @default(false)
   is_focused Boolean  @default(false)
   key        String   @unique @default(uuid())
-  user       User     @relation(fields: [user_id], references: [id])
   user_id    String   @unique
+  user       User     @relation(fields: [user_id], references: [id])
 }
