@@ -21,7 +21,7 @@ from slack_bolt.async_app import AsyncAck, AsyncApp
 from social_core.backends.slack import SlackOAuth2
 import uvicorn
 
-load_dotenv()
+load_dotenv(dotenv_path="./.env")
 
 active_stream: Dict[str, str | bool] = {}
 active_streams: List[Dict[str, str | bool]] = []

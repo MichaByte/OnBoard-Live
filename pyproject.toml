@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "backend"
+name = "onboard_live_backend"
 version = "0.0.1"
 authors = [{ name = "Micha Albert", email = "micha@2231puppy.tech" }]
 description = "Backend for OnBoard Live, A Hack Club YSWS grant program"
@@ -90,7 +90,7 @@ dependencies = [
 Homepage = "https://github.com/MichaByte/OnBoard-Live"
 
 [tool.hatch.build.targets.wheel]
-packages = ["backend"]
+packages = ["onboard_live_backend"]
 
 [project.scripts]
-start = "main:main"
+onboard-live-backend-start = "onboard_live_backend.main:main"
