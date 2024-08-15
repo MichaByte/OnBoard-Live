@@ -28,9 +28,9 @@ scheduler = AsyncIOScheduler()
 
 oauth2_config = OAuth2Config(
     allow_http=False,
-    jwt_secret=os.getenv("JWT_SECRET"),
-    jwt_expires=os.getenv("JWT_EXPIRES"),
-    jwt_algorithm=os.getenv("JWT_ALGORITHM"),
+    jwt_secret=os.environ["JWT_SECRET"],
+    jwt_expires=os.environ["JWT_EXPIRES"],
+    jwt_algorithm=os.environ["JWT_ALGORITHM"],
     clients=[
         OAuth2Client(
             backend=SlackOAuth2,
