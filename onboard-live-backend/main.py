@@ -5,6 +5,7 @@ from random import choice
 from secrets import token_hex
 from typing import Dict, List
 
+import fastapi
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -18,6 +19,7 @@ from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
 from social_core.backends.slack import SlackOAuth2
+import uvicorn
 
 load_dotenv()
 
@@ -562,3 +564,11 @@ async def handle_some_action(ack):
 @api.post("/slack/events")
 async def slack_event_endpoint(req: Request):
     return await bolt_handler.handle(req)
+
+
+def main():
+    uvicorn.run(api)
+
+
+if __name__ == "__main__":
+    main()
