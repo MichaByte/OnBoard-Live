@@ -6,3 +6,5 @@ python-dotenv
 prisma
 fastapi-utils
 httpx
+apscheduler
+fastapi-oauth2

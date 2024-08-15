@@ -11,9 +11,13 @@ from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi_oauth2.claims import Claims
+from fastapi_oauth2.client import OAuth2Client
+from fastapi_oauth2.config import OAuth2Config
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
+from social_core.backends.slack import SlackOAuth2
 
 load_dotenv()
 
@@ -21,6 +25,20 @@ active_stream: Dict[str, str | bool] = {}
 active_streams: List[Dict[str, str | bool]] = []
 
 scheduler = AsyncIOScheduler()
+
+oauth2_config = OAuth2Config(
+    allow_http=False,
+    jwt_secret=os.getenv("JWT_SECRET"),
+    jwt_expires=os.getenv("JWT_EXPIRES"),
+    jwt_algorithm=os.getenv("JWT_ALGORITHM"),
+    clients=[
+        OAuth2Client(
+            backend=SlackOAuth2,
+            client_id=os.environ["SLACK_TOKEN"],
+            client_secret=os.environ["SLACK_SIGNING_SECRET"],
+        )
+    ],
+)
 
 
 async def update_active():
@@ -145,6 +163,7 @@ async def get_stream_by_key(stream_key: str):
     return (
         stream if stream else Response(status_code=404, content="404: Stream not found")
     )
+
 
 @api.get("/api/v1/active_stream")
 async def get_active_stream():
