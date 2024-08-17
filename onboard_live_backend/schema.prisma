@@ -10,11 +10,13 @@ datasource db {
 }
 
 model User {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-  slack_id   String   @unique
-  name       String
-  stream     Stream?
+  id             String        @id @default(cuid())
+  created_at     DateTime      @default(now())
+  slack_id       String        @unique
+  name           String
+  stream         Stream?
+  possible_pulls PullRequest[] @relation(name: "PullRequestToPossibleUser") // pull requests that this user has tried to claim via the /onboard-live-submit command on Slack
+  known_pulls    PullRequest[] @relation(name: "PullRequestToKnownUser") // pull requests that have been verified to belong to this user
 }
 
 model Stream {
@@ -25,4 +27,14 @@ model Stream {
   key        String   @unique @default(uuid())
   user_id    String   @unique
   user       User     @relation(fields: [user_id], references: [id])
+}
+
+model PullRequest {
+  id              Int     @id @default(autoincrement())
+  github_id       Int     @unique
+  user            User?   @relation(name: "PullRequestToKnownUser", fields: [known_user_id], references: [id])
+  known_user_id   String?
+  token           String  @unique @default(uuid())
+  secondary_token String  @unique @default(uuid())
+  possible_users  User[]  @relation(name: "PullRequestToPossibleUser")
 }

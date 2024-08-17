@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import os
 from contextlib import asynccontextmanager
@@ -5,21 +7,16 @@ from random import choice
 from secrets import token_hex
 from typing import Dict, List
 
-import fastapi
 import httpx
+import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_oauth2.claims import Claims
-from fastapi_oauth2.client import OAuth2Client
-from fastapi_oauth2.config import OAuth2Config
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
-from social_core.backends.slack import SlackOAuth2
-import uvicorn
 
 load_dotenv(dotenv_path="./.env")
 
@@ -28,19 +25,27 @@ active_streams: List[Dict[str, str | bool]] = []
 
 scheduler = AsyncIOScheduler()
 
-oauth2_config = OAuth2Config(
-    allow_http=False,
-    jwt_secret=os.environ["JWT_SECRET"],
-    jwt_expires=os.environ["JWT_EXPIRES"],
-    jwt_algorithm=os.environ["JWT_ALGORITHM"],
-    clients=[
-        OAuth2Client(
-            backend=SlackOAuth2,
-            client_id=os.environ["SLACK_TOKEN"],
-            client_secret=os.environ["SLACK_SIGNING_SECRET"],
+
+def verify_gh_signature(payload_body, secret_token, signature_header):
+    """Verify that the payload was sent from GitHub by validating SHA256.
+
+    Raise and return 403 if not authorized.
+
+    Args:
+        payload_body: original request body to verify (request.body())
+        secret_token: GitHub app webhook token (WEBHOOK_SECRET)
+        signature_header: header received from GitHub (x-hub-signature-256)
+    """
+    if not signature_header:
+        raise HTTPException(
+            status_code=403, detail="x-hub-signature-256 header is missing!"
         )
-    ],
-)
+    hash_object = hmac.new(
+        secret_token.encode("utf-8"), msg=payload_body, digestmod=hashlib.sha256
+    )
+    expected_signature = "sha256=" + hash_object.hexdigest()
+    if not hmac.compare_digest(expected_signature, signature_header):
+        raise HTTPException(status_code=403, detail="Request signatures didn't match!")
 
 
 async def update_active():
@@ -75,17 +80,13 @@ async def update_active():
             )
             new_stream = choice(active_streams)
         print(f"found new stream to make active: {new_stream}")
-        try:
-            await db.connect()
-        except Exception as e:
-            print(e)
         print(f"trying to find user associated with stream {active_stream['name']}")
         old_active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
         await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!")  # type: ignore
         active_stream = new_stream
         active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
         await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{active_stream_user.slack_id}>, you're in focus! Make sure to tell us what you're working on!")  # type: ignore
-        await db.disconnect()
+        return True
 
 
 async def check_for_new():
@@ -124,19 +125,16 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     scheduler.add_job(update_active, IntervalTrigger(seconds=5 * 60))
     scheduler.add_job(check_for_new, IntervalTrigger(seconds=3))
-    try:
-        await db.connect()
-    except Exception:
-        pass
+    await db.connect()
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
             await client.post(
                 "http://127.0.0.1:9997/v3/config/paths/add/" + stream.key,
                 json={"name": stream.key},
             )
-    await db.disconnect()
     yield
     scheduler.shutdown()
+    await db.disconnect()
 
 
 api = FastAPI(lifespan=lifespan)  # type: ignore
@@ -157,11 +155,48 @@ bolt = AsyncApp(
 bolt_handler = AsyncSlackRequestHandler(bolt)
 
 
+@api.post("/api/v1/github/pr_event")
+async def pr_event(request: Request):
+    verify_gh_signature(
+        await request.body(),
+        os.environ["GH_HOOK_SECRET"],
+        request.headers.get("x-hub-signature-256"),
+    )
+    body = json.loads(await request.body())
+    if body["action"] == "labeled":
+        if body["label"]["id"] == 7336079497:
+            print("Added label has same id as OBL label!")
+            async with httpx.AsyncClient() as client:
+                db_pr = await db.pullrequest.create({"github_id": body["number"]})
+                db_pr_token = db_pr.token
+                await client.post(
+                    f"https://api.github.com/repos/hackclub/OnBoard/issues/{body["issue"]["number"]}/comments",
+                    headers={
+                        "Authorization": f"token {os.environ['GH_TOKEN']}",
+                        "Accept": "application/vnd.github.v3+json",
+                    },
+                    json={
+                        "body": f"Hey, I'm Micha, a.k.a `@mra` on Slack! It looks like this is an OnBoard Live submission. If that sounds right, then go to the #onboard-live channel on Slack and send the message `/onboard-live-submit {db_pr_token}`. Doing that helps us link this pull request to your Slack account lets you select your sessions for review.\n###### If you have no clue what OnBoard Live is, please disregard this automated message!"
+                    },
+                )
+    elif "created" in body and "comment" in body:
+        if body["comment"]["user"]["id"] == body["issue"]["user"]["id"]:
+            db_pr = await db.pullrequest.find_first(where={"github_id": body["issue"]["number"]})
+            if db_pr:
+                if db_pr.possible_users:
+                    for user in db_pr.possible_users:
+                        if hashlib.sha256(bytes(f"{db_pr.secondary_token}+{user.slack_id}", encoding="utf-8")).hexdigest() in body["comment"]["body"]:
+                            # Yay, the user who ran the Slack submit command is the same user who submitted the PR!
+                            db_pr.user = user
+                            break
+                else:
+                    print("possible users was none")
+    return
+
+
 @api.get("/api/v1/stream_key/{stream_key}")
 async def get_stream_by_key(stream_key: str):
-    await db.connect()
     stream = await db.stream.find_first(where={"key": stream_key})
-    await db.disconnect()
     return (
         stream if stream else Response(status_code=404, content="404: Stream not found")
     )
@@ -220,10 +255,6 @@ async def deny(ack, body):
 @bolt.action("approve")
 async def approve(ack, body):
     await ack()
-    try:
-        await db.connect()
-    except Exception:
-        pass
     message = body["message"]
     applicant_slack_id = message["blocks"][len(message) - 3]["text"]["text"].split(
         ": "
@@ -262,7 +293,6 @@ async def approve(ack, body):
         channel=sumbitter_convo["channel"]["id"],
         text=f"Welcome to OnBoard Live! Your stream key is {new_stream.key}. To use your stream key the easy way, go to <https://live.onboard.hackclub.com/{new_stream.key}/publish|this link>. You can also use it in OBS with the server URL of rtmp://live.onboard.hackclub.com:1935",
     )
-    await db.disconnect()
 
 
 @bolt.view("apply")
@@ -286,9 +316,6 @@ async def handle_application_submission(ack, body):
     await bolt.client.chat_postMessage(
         channel=sumbitter_convo["channel"]["id"],
         text=f"Your application has been submitted! We will review it shortly. Please do not send another application - If you haven't heard back in over 48 hours, or you forgot something in your application, please message <@{os.environ['ADMIN_SLACK_ID']}>! Here's a copy of your responses for your reference:\nSome info on your project(s): {body['view']['state']['values']['project-info']['project-info-body']['value']}\n{f'Please fill out <https://forms.hackclub.com/eligibility?program=Onboard%20Live&slack_id={user}|the verification form>! We can only approve your application once this is done.' if not user_verified else ''}",
-    )
-    admin_convo = await bolt.client.conversations_open(
-        users=os.environ["ADMIN_SLACK_ID"], return_im=True
     )
     will_behave = True
     # boxes = body["view"]["state"]["values"]["kAgeY"]["checkboxes"]["selected_options"]
@@ -373,6 +400,29 @@ async def handle_application_submission(ack, body):
                 ],
             },
         ],
+    )
+
+
+@bolt.command("/onboard-live-submit")
+async def submit(ack: AsyncAck, command):
+    await ack()
+    user_id = command["user_id"]
+    channel_id = command["channel_id"]
+    text = command["text"]
+    db_pr = await db.pullrequest.find_first(where={"token": text})
+    db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
+    if db_pr is None:
+        await bolt.client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="There doesn't seem to be a PR open with that token! If this seems like a mistake, please message <@U05C64XMMHV> about it!",
+        )
+        return
+    await db.pullrequest.update(where={"id": db_pr.id}, data={"possible_users": {"set": [{"id": db_user.id}]}})
+    await bolt.client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        text=f"Please go to <https://github.com/hackclub/OnBoard/pull/{db_pr.github_id}|your pull request> and add a comment containing the secret code `{hashlib.sha256(bytes(f"{db_pr.secondary_token}+{user_id}", encoding="utf-8")).hexdigest()}`. This helps us make sure this is your PR!",
     )
 
 
