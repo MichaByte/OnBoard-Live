@@ -7,6 +7,7 @@ from random import choice
 from secrets import token_hex
 from typing import Dict, List
 
+from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -17,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
+from cryptography.fernet import Fernet
 
 load_dotenv(dotenv_path="./.env")
 
@@ -24,6 +26,8 @@ active_stream: Dict[str, str | bool] = {}
 active_streams: List[Dict[str, str | bool]] = []
 
 scheduler = AsyncIOScheduler()
+
+FERNET = Fernet(os.environ["FERNET_KEY"])
 
 
 def verify_gh_signature(payload_body, secret_token, signature_header):
@@ -155,6 +159,41 @@ bolt = AsyncApp(
 bolt_handler = AsyncSlackRequestHandler(bolt)
 
 
+@api.get("/auth/github/login")
+async def github_redirect(request: Request):
+    return RedirectResponse(
+        f"https://github.com/login/oauth/authorize?client_id={os.environ['GH_CLIENT_ID']}&redirect_uri=https://live.onboard.hackclub.com/auth/github/callback&scopes=read:user&state={request.query_params["state"]}"
+    )
+
+
+@api.get("/auth/github/callback")
+async def github_callback(request: Request):
+    code: str = request.query_params["code"]
+    state: str = request.query_params["state"]
+    user_id, pr_id = FERNET.decrypt(bytes.fromhex(state)).decode().split("+")
+    db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
+    db_pr = await db.pullrequest.find_first_or_raise(where={"github_id": int(pr_id)})
+    async with httpx.AsyncClient() as client:
+        token = (
+            await client.post(
+                "https://github.com/login/oauth/access_token",
+                json={
+                    "client_id": os.environ["GH_CLIENT_ID"],
+                    "client_secret": os.environ["GH_CLIENT_SECRET"],
+                    "code": code,
+                    "redirect_uri": "https://live.onboard.hackclub.com/auth/github/callback",
+                },
+                headers={"Accept": "application/json"},
+            )
+        ).json()["access_token"]
+
+        gh_user = (await client.get("https://api.github.com/user", headers={"Accept": "application/vnd.github.v3+json", "Authorization": f"Bearer {token}"})).json()["id"]
+        if gh_user == db_pr.gh_user_id:
+            await db.pullrequest.update({"user": {"connect": {"id": db_user.id}}, "gh_user_id": gh_user}, {"id": db_pr.id})
+            return HTMLResponse("<h1>Success! Your PR has been linked to your account. Check your Slack DMs for the next steps!</h1>")
+    return HTMLResponse("<h1>Looks like something went wrong! DM @mra on slack.</h1>", status_code=403)
+
+
 @api.post("/api/v1/github/pr_event")
 async def pr_event(request: Request):
     verify_gh_signature(
@@ -166,31 +205,7 @@ async def pr_event(request: Request):
     if body["action"] == "labeled":
         if body["label"]["id"] == 7336079497:
             print("Added label has same id as OBL label!")
-            async with httpx.AsyncClient() as client:
-                db_pr = await db.pullrequest.create({"github_id": body["number"]})
-                db_pr_token = db_pr.token
-                await client.post(
-                    f"https://api.github.com/repos/hackclub/OnBoard/issues/{body["issue"]["number"]}/comments",
-                    headers={
-                        "Authorization": f"token {os.environ['GH_TOKEN']}",
-                        "Accept": "application/vnd.github.v3+json",
-                    },
-                    json={
-                        "body": f"Hey, I'm Micha, a.k.a `@mra` on Slack! It looks like this is an OnBoard Live submission. If that sounds right, then go to the #onboard-live channel on Slack and send the message `/onboard-live-submit {db_pr_token}`. Doing that helps us link this pull request to your Slack account lets you select your sessions for review.\n###### If you have no clue what OnBoard Live is, please disregard this automated message!"
-                    },
-                )
-    elif "created" in body and "comment" in body:
-        if body["comment"]["user"]["id"] == body["issue"]["user"]["id"]:
-            db_pr = await db.pullrequest.find_first(where={"github_id": body["issue"]["number"]})
-            if db_pr:
-                if db_pr.possible_users:
-                    for user in db_pr.possible_users:
-                        if hashlib.sha256(bytes(f"{db_pr.secondary_token}+{user.slack_id}", encoding="utf-8")).hexdigest() in body["comment"]["body"]:
-                            # Yay, the user who ran the Slack submit command is the same user who submitted the PR!
-                            db_pr.user = user
-                            break
-                else:
-                    print("possible users was none")
+            await db.pullrequest.create({"github_id": body["pull_request"]["number"], "gh_user_id": body["pull_request"]["user"]["id"]})
     return
 
 
@@ -409,20 +424,18 @@ async def submit(ack: AsyncAck, command):
     user_id = command["user_id"]
     channel_id = command["channel_id"]
     text = command["text"]
-    db_pr = await db.pullrequest.find_first(where={"token": text})
-    db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
+    db_pr = await db.pullrequest.find_first(where={"github_id": int(text)})
     if db_pr is None:
         await bolt.client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text="There doesn't seem to be a PR open with that token! If this seems like a mistake, please message <@U05C64XMMHV> about it!",
+            text="There doesn't seem to be a PR open with that ID! If this seems like a mistake, please message <@U05C64XMMHV> about it!",
         )
         return
-    await db.pullrequest.update(where={"id": db_pr.id}, data={"possible_users": {"set": [{"id": db_user.id}]}})
     await bolt.client.chat_postEphemeral(
         channel=channel_id,
         user=user_id,
-        text=f"Please go to <https://github.com/hackclub/OnBoard/pull/{db_pr.github_id}|your pull request> and add a comment containing the secret code `{hashlib.sha256(bytes(f"{db_pr.secondary_token}+{user_id}", encoding="utf-8")).hexdigest()}`. This helps us make sure this is your PR!",
+        text=f"Please <https://live.onboard.hackclub.com/auth/github/login?state={FERNET.encrypt(bytes(f"{user_id}+{db_pr.github_id}", 'utf-8')).hex()}|click here> to authenticate with GitHub. This helps us verify that this is your PR!",
     )
 
 
