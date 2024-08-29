@@ -7,18 +7,19 @@ from random import choice
 from secrets import token_hex
 from typing import Dict, List
 
-from fastapi.responses import HTMLResponse, RedirectResponse
+from aiofiles.os import listdir as async_listdir
 import httpx
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
-from cryptography.fernet import Fernet
 
 load_dotenv(dotenv_path="./.env")
 
@@ -50,6 +51,18 @@ def verify_gh_signature(payload_body, secret_token, signature_header):
     expected_signature = "sha256=" + hash_object.hexdigest()
     if not hmac.compare_digest(expected_signature, signature_header):
         raise HTTPException(status_code=403, detail="Request signatures didn't match!")
+
+
+async def get_recording_list(stream_key: str) -> List[str]:
+    try:
+        files = await async_listdir(f"/home/onboard/recordings/{stream_key}")
+    except FileNotFoundError:
+        return []
+    for file in files:
+        split_file = file.split("/")
+        filename_without_ext = split_file[len(split_file) - 1].split(".")[0]
+        files[files.index(file)] = filename_without_ext
+    return files
 
 
 async def update_active():
@@ -162,7 +175,7 @@ bolt_handler = AsyncSlackRequestHandler(bolt)
 @api.get("/auth/github/login")
 async def github_redirect(request: Request):
     return RedirectResponse(
-        f"https://github.com/login/oauth/authorize?client_id={os.environ['GH_CLIENT_ID']}&redirect_uri=https://live.onboard.hackclub.com/auth/github/callback&scopes=read:user&state={request.query_params["state"]}"
+        f"https://github.com/login/oauth/authorize?client_id={os.environ['GH_CLIENT_ID']}&redirect_uri=https://live.onboard.hackclub.com/auth/github/callback&scopes=read:user&state={request.query_params['state']}"
     )
 
 
@@ -172,6 +185,7 @@ async def github_callback(request: Request):
     state: str = request.query_params["state"]
     user_id, pr_id = FERNET.decrypt(bytes.fromhex(state)).decode().split("+")
     db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
+    user_stream_key = (await db.stream.find_first_or_raise(where={"user_id": db_user.id})).key
     db_pr = await db.pullrequest.find_first_or_raise(where={"github_id": int(pr_id)})
     async with httpx.AsyncClient() as client:
         token = (
@@ -187,11 +201,59 @@ async def github_callback(request: Request):
             )
         ).json()["access_token"]
 
-        gh_user = (await client.get("https://api.github.com/user", headers={"Accept": "application/vnd.github.v3+json", "Authorization": f"Bearer {token}"})).json()["id"]
+        gh_user: int = (
+            await client.get(
+                "https://api.github.com/user",
+                headers={
+                    "Accept": "application/vnd.github.v3+json",
+                    "Authorization": f"Bearer {token}",
+                },
+            )
+        ).json()["id"]
         if gh_user == db_pr.gh_user_id:
-            await db.pullrequest.update({"user": {"connect": {"id": db_user.id}}, "gh_user_id": gh_user}, {"id": db_pr.id})
-            return HTMLResponse("<h1>Success! Your PR has been linked to your account. Check your Slack DMs for the next steps!</h1>")
-    return HTMLResponse("<h1>Looks like something went wrong! DM @mra on slack.</h1>", status_code=403)
+            await db.pullrequest.update(
+                {"user": {"connect": {"id": db_user.id}}, "gh_user_id": gh_user},
+                {"id": db_pr.id},
+            )
+            stream_recs = await get_recording_list(user_stream_key)
+            if stream_recs == []:
+                return HTMLResponse(
+                    "<h1>You don't have any sessions to submit! Please DM @mra on Slack if you think this is a mistake.</h1>"
+                )
+            await bolt.client.chat_postMessage(
+                channel=user_id,
+                text="Select your OnBoard Live sessions!",
+                blocks=[
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Select your sessions for review!",
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "This is a section block with checkboxes.",
+                        },
+                        "accessory": {
+                            "type": "checkboxes",
+                            "options": [
+                                json.loads("""{{"text": {{ "type": "mrkdwn", "text": "Your session on {pretty_time}"}}, "description": {{"type": "mrkdwn", "text": "You streamed for {length}"}}, "value": "checkbox-{filename}"}}""".format(pretty_time=recording, length=1, filename=recording)) for recording in stream_recs
+                            ],
+                            "action_id": "checkboxes",
+                        },
+                    },
+                ],
+            )
+            return HTMLResponse(
+                "<h1>Success! Your PR has been linked to your account. Check your Slack DMs for the next steps!</h1>"
+            )
+    return HTMLResponse(
+        f"<h1>Looks like something went wrong! DM @mra on slack.</h1><p>This info might be of use to them: {FERNET.encrypt(bytes(str(db_pr.gh_user_id) + " " + str(gh_user) + " " + user_id + " " + pr_id + " " + state, encoding='utf-8'))}</p>", status_code=403
+    )
 
 
 @api.post("/api/v1/github/pr_event")
@@ -205,7 +267,12 @@ async def pr_event(request: Request):
     if body["action"] == "labeled":
         if body["label"]["id"] == 7336079497:
             print("Added label has same id as OBL label!")
-            await db.pullrequest.create({"github_id": body["pull_request"]["number"], "gh_user_id": body["pull_request"]["user"]["id"]})
+            await db.pullrequest.create(
+                {
+                    "github_id": body["pull_request"]["number"],
+                    "gh_user_id": body["pull_request"]["user"]["id"],
+                }
+            )
     return
 
 
@@ -435,7 +502,7 @@ async def submit(ack: AsyncAck, command):
     await bolt.client.chat_postEphemeral(
         channel=channel_id,
         user=user_id,
-        text=f"Please <https://live.onboard.hackclub.com/auth/github/login?state={FERNET.encrypt(bytes(f"{user_id}+{db_pr.github_id}", 'utf-8')).hex()}|click here> to authenticate with GitHub. This helps us verify that this is your PR!",
+        text=f"Please <https://live.onboard.hackclub.com/auth/github/login?state={FERNET.encrypt(bytes(f'{user_id}+{db_pr.github_id}', 'utf-8')).hex()}|click here> to authenticate with GitHub. This helps us verify that this is your PR!",
     )
 
 
