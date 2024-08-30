@@ -7,7 +7,6 @@ from random import choice
 from secrets import token_hex
 from typing import Dict, List
 
-from aiofiles.os import listdir as async_listdir
 import httpx
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -54,15 +53,8 @@ def verify_gh_signature(payload_body, secret_token, signature_header):
 
 
 async def get_recording_list(stream_key: str) -> List[str]:
-    try:
-        files = await async_listdir(f"/home/onboard/recordings/{stream_key}")
-    except FileNotFoundError:
-        return []
-    for file in files:
-        split_file = file.split("/")
-        filename_without_ext = split_file[len(split_file) - 1].split(".")[0]
-        files[files.index(file)] = filename_without_ext
-    return files
+    async with httpx.AsyncClient() as client:
+        return [recording["start"] for recording in (await client.get(f"http://localhost:9997/v3/recordings/get/{stream_key}")).json()["segments"]]
 
 
 async def update_active():
