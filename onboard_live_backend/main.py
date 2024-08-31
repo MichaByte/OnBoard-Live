@@ -3,10 +3,12 @@ import hmac
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from random import choice
 from secrets import token_hex
 from typing import Dict, List
 
+import cv2
 import httpx
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -19,6 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from prisma import Prisma
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
+from yarl import URL
 
 load_dotenv(dotenv_path="./.env")
 
@@ -28,6 +31,15 @@ active_streams: List[Dict[str, str | bool]] = []
 scheduler = AsyncIOScheduler()
 
 FERNET = Fernet(os.environ["FERNET_KEY"])
+
+
+def get_recording_duration(timestamp, stream_key):
+    vid = cv2.VideoCapture(
+        f"/home/onboard/recordings/{stream_key}/{datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y-%m-%d_%H-%M-%S-%f')}.mp4"
+    )
+    return int(
+        (vid.get(cv2.CAP_PROP_FRAME_COUNT) / vid.get(cv2.CAP_PROP_FPS)) / 60
+    )  # seconds to minutes
 
 
 def verify_gh_signature(payload_body, secret_token, signature_header):
@@ -54,7 +66,14 @@ def verify_gh_signature(payload_body, secret_token, signature_header):
 
 async def get_recording_list(stream_key: str) -> List[str]:
     async with httpx.AsyncClient() as client:
-        return [recording["start"] for recording in (await client.get(f"http://localhost:9997/v3/recordings/get/{stream_key}")).json()["segments"]]
+        return [
+            recording["start"]
+            for recording in (
+                await client.get(
+                    f"http://localhost:9997/v3/recordings/get/{stream_key}"
+                )
+            ).json()["segments"]
+        ]
 
 
 async def update_active():
@@ -167,7 +186,19 @@ bolt_handler = AsyncSlackRequestHandler(bolt)
 @api.get("/auth/github/login")
 async def github_redirect(request: Request):
     return RedirectResponse(
-        f"https://github.com/login/oauth/authorize?client_id={os.environ['GH_CLIENT_ID']}&redirect_uri=https://live.onboard.hackclub.com/auth/github/callback&scopes=read:user&state={request.query_params['state']}"
+        str(
+            URL.build(
+                scheme="https",
+                host="github.com",
+                path="/login/oauth/authorize",
+                query={
+                    "client_id": os.environ["GH_CLIENT_ID"],
+                    "redirect_uri": "https://live.onboard.hackclub.com/auth/github/callback",
+                    "scopes": "read:user",
+                    "state": request.query_params["state"],
+                },
+            )
+        )
     )
 
 
@@ -177,7 +208,9 @@ async def github_callback(request: Request):
     state: str = request.query_params["state"]
     user_id, pr_id = FERNET.decrypt(bytes.fromhex(state)).decode().split("+")
     db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
-    user_stream_key = (await db.stream.find_first_or_raise(where={"user_id": db_user.id})).key
+    user_stream_key = (
+        await db.stream.find_first_or_raise(where={"user_id": db_user.id})
+    ).key
     db_pr = await db.pullrequest.find_first_or_raise(where={"github_id": int(pr_id)})
     async with httpx.AsyncClient() as client:
         token = (
@@ -228,23 +261,57 @@ async def github_callback(request: Request):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "This is a section block with checkboxes.",
+                            "text": f"Here are all your sessions. Select the ones associated with OnBoard pull request #{pr_id}:",
                         },
                         "accessory": {
                             "type": "checkboxes",
                             "options": [
-                                json.loads("""{{"text": {{ "type": "mrkdwn", "text": "Your session on {pretty_time}"}}, "description": {{"type": "mrkdwn", "text": "You streamed for {length}"}}, "value": "checkbox-{filename}"}}""".format(pretty_time=recording, length=1, filename=recording)) for recording in stream_recs
+                                json.loads(
+                                    """{{"text": {{ "type": "mrkdwn", "text": "Your session on {pretty_time}"}}, "description": {{"type": "mrkdwn", "text": "You streamed for {length} {minute_or_minutes}"}}, "value": "checkbox-{filename}"}}""".format(
+                                        pretty_time=recording,
+                                        length=get_recording_duration(
+                                            recording, user_stream_key
+                                        ),
+                                        minute_or_minutes=(
+                                            "minute"
+                                            if get_recording_duration(
+                                                recording, user_stream_key
+                                            )
+                                            == 1
+                                            else "minutes"
+                                        ),
+                                        filename=recording,
+                                    )
+                                )
+                                for recording in stream_recs
                             ],
                             "action_id": "checkboxes",
                         },
                     },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "emoji": True,
+                                    "text": "Submit",
+                                },
+                                "style": "primary",
+                                "value": "submit_sessions",
+                                "action_id": "submit_sessions",
+                            },
+                        ],
+                    },
                 ],
             )
             return HTMLResponse(
-                "<h1>Success! Your PR has been linked to your account. Check your Slack DMs for the next steps!</h1>"
+                "<h1>Success! Your PR has been linked to your Slack account. Check your Slack DMs for the next steps!</h1>"
             )
     return HTMLResponse(
-        f"<h1>Looks like something went wrong! DM @mra on slack.</h1><p>This info might be of use to them: {FERNET.encrypt(bytes(str(db_pr.gh_user_id) + " " + str(gh_user) + " " + user_id + " " + pr_id + " " + state, encoding='utf-8'))}</p>", status_code=403
+        f"<h1>Looks like something went wrong! DM @mra on slack.</h1><p>This info might be of use to them: {FERNET.encrypt(bytes(str(db_pr.gh_user_id) + " " + str(gh_user) + " " + user_id + " " + pr_id + " " + state, encoding='utf-8'))}</p>",
+        status_code=403,
     )
 
 
