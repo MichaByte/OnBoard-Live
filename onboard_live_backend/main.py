@@ -32,8 +32,6 @@ scheduler = AsyncIOScheduler()
 FERNET_KEY = Fernet.generate_key()
 FERNET_KEY_USERS = []
 
-if FERNET_KEY == "":
-    raise TypeError("No Fernet key found, exiting...")
 
 FERNET = Fernet(FERNET_KEY)
 
