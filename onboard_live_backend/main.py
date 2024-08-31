@@ -4,8 +4,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
-from random import choice
-from secrets import token_hex
+from secrets import choice, token_hex
 from typing import Dict, List
 
 import cv2
@@ -30,7 +29,23 @@ active_streams: List[Dict[str, str | bool]] = []
 
 scheduler = AsyncIOScheduler()
 
-FERNET = Fernet(os.environ["FERNET_KEY"])
+FERNET_KEY = Fernet.generate_key()
+FERNET_KEY_USERS = []
+
+if FERNET_KEY == "":
+    raise TypeError("No Fernet key found, exiting...")
+
+FERNET = Fernet(FERNET_KEY)
+
+
+async def rotate_fernet_key():
+    global FERNET_KEY
+    global FERNET
+    if FERNET_KEY_USERS == []:
+        FERNET_KEY = Fernet.generate_key()
+        FERNET = Fernet(FERNET_KEY)
+    else:
+        print("not rotating key since we have a pending verification")
 
 
 def get_recording_duration(timestamp, stream_key):
@@ -140,8 +155,10 @@ async def check_for_new():
 async def lifespan(app: FastAPI):
     await update_active()
     scheduler.start()
-    scheduler.add_job(update_active, IntervalTrigger(seconds=5 * 60))
+    scheduler.add_job(update_active, IntervalTrigger(minutes=5))
     scheduler.add_job(check_for_new, IntervalTrigger(seconds=3))
+    scheduler.add_job(rotate_fernet_key, IntervalTrigger(minutes=30))
+    await rotate_fernet_key()
     await db.connect()
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
@@ -196,6 +213,8 @@ async def github_callback(request: Request):
     code: str = request.query_params["code"]
     state: str = request.query_params["state"]
     user_id, pr_id = FERNET.decrypt(bytes.fromhex(state)).decode().split("+")
+    if user_id in FERNET_KEY_USERS:
+        FERNET_KEY_USERS.remove(user_id)
     db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
     user_stream_key = (
         await db.stream.find_first_or_raise(where={"user_id": db_user.id})
@@ -299,8 +318,8 @@ async def github_callback(request: Request):
                 "<h1>Success! Your PR has been linked to your Slack account. Check your Slack DMs for the next steps!</h1>"
             )
     return HTMLResponse(
-        f"<h1>Looks like something went wrong! DM @mra on slack.</h1><p>This info might be of use to them: {FERNET.encrypt(bytes(str(db_pr.gh_user_id) + " " + str(gh_user) + " " + user_id + " " + pr_id + " " + state, encoding='utf-8'))}</p>",
-        status_code=403,
+        "<h1>Looks like something went wrong! DM @mra on slack.</h1>",
+        status_code=500,
     )
 
 
@@ -546,6 +565,8 @@ async def submit(ack: AsyncAck, command):
             text="There doesn't seem to be a PR open with that ID! If this seems like a mistake, please message <@U05C64XMMHV> about it!",
         )
         return
+    if user_id not in FERNET_KEY_USERS:
+        FERNET_KEY_USERS.append(user_id)
     await bolt.client.chat_postEphemeral(
         channel=channel_id,
         user=user_id,
