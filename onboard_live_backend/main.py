@@ -90,25 +90,15 @@ async def update_active():
             if stream["ready"] and stream not in active_streams:
                 active_streams.append(stream)
         if len(active_streams) == 0:
-            print("No active streams")
             return
         if active_stream == {}:
-            print("No current active stream, picking new one...")
             active_stream = choice(active_streams)
             return
         if len(active_streams) == 1:
             return
-        print(
-            f"starting to pick new active stream (switching away from {active_stream['name']})"
-        )
         new_stream = choice(active_streams)
         while new_stream["name"] == active_stream["name"]:
-            print(
-                f"re-attemppting to pick active stream since we picked {new_stream} again"
-            )
             new_stream = choice(active_streams)
-        print(f"found new stream to make active: {new_stream}")
-        print(f"trying to find user associated with stream {active_stream['name']}")
         old_active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
         await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!")  # type: ignore
         active_stream = new_stream
@@ -143,7 +133,6 @@ async def check_for_new():
             if stream not in active_streams_simple:
                 active_streams.append({"name": stream, "ready": True})
         if len(active_streams) == 0:
-            print("No active streams")
             active_stream = {}
 
 
@@ -325,7 +314,6 @@ async def pr_event(request: Request):
     body = json.loads(await request.body())
     if body["action"] == "labeled":
         if body["label"]["id"] == 7336079497:
-            print("Added label has same id as OBL label!")
             await db.pullrequest.create(
                 {
                     "github_id": body["pull_request"]["number"],
