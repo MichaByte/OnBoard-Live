@@ -375,6 +375,11 @@ async def handle_app_home_opened_events(body, logger, event, client):
     )
 
 
+@bolt.action("submit_sessions")
+async def submit_sessions(ack, body):
+    await ack()
+
+
 @bolt.action("deny")
 async def deny(ack, body):
     await ack()
@@ -753,7 +758,11 @@ async def apply(ack: AsyncAck, command):
 
 
 @bolt.action("checkboxes")
-async def handle_some_action(ack):
+async def checkboxes(ack):
+    """
+    AFAICT there needs to be *an* action for the checkboxes, but I process their data elsewhere (on submit)
+    To avoid warnings in Slack, I'm just ACKing it here and doing nothing :)
+    """
     await ack()
 
 
