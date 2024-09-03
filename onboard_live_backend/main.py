@@ -264,6 +264,7 @@ async def github_callback(request: Request):
                         },
                     },
                     {
+                        "block_id": "session-checks",
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
@@ -376,8 +377,35 @@ async def handle_app_home_opened_events(body, logger, event, client):
 
 
 @bolt.action("submit_sessions")
-async def submit_sessions(ack, body):
+async def submit_sessions(ack: AsyncAck, body):
     await ack()
+    selected_sessions_ts: List[str] = [
+        i["text"]["text"].split("session on ")[1]
+        for i in body["state"]["values"]["session-checks"]["checkboxes"][
+            "selected_options"
+        ]
+    ]
+    pr_id = int(
+        body["message"]["blocks"][1]["text"]["text"].split("#")[1].split(":")[0]
+    )  # don't tell my mom she raised a monster
+    db_pr = await db.pullrequest.find_first_or_raise(where={"github_id": pr_id})
+    if db_pr.user_id:
+        stream_key = (
+            await db.stream.find_first_or_raise(where={"user_id": db_pr.user_id})
+        ).key
+        for session in selected_sessions_ts:
+            await db.session.create(
+                {
+                    "pull": {"connect": {"id": db_pr.id}},
+                    "timestamp": session,
+                    "filename": f"/home/onboard/recordings/{stream_key}/{datetime.strptime(session, '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y-%m-%d_%H-%M-%S-%f')}.mp4",
+                    "duration": get_recording_duration(session, stream_key),
+                }
+            )
+        await bolt.client.chat_delete(
+            channel=body["container"]["channel_id"], ts=body["message"]["ts"]
+        )
+        print(pr_id, selected_sessions_ts)
 
 
 @bolt.action("deny")

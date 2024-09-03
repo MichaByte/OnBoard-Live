@@ -29,9 +29,21 @@ model Stream {
 }
 
 model PullRequest {
-  id         Int     @id @default(autoincrement())
-  github_id  Int     @unique
+  id         Int       @id @default(autoincrement())
+  github_id  Int       @unique
   user_id    String?
   gh_user_id Int
-  user       User?   @relation("PullRequestToUser", fields: [user_id], references: [id])
+  user       User?     @relation("PullRequestToUser", fields: [user_id], references: [id])
+  sessions   Session[]
+}
+
+model Session {
+  id        String      @id @default(cuid())
+  pr_id     Int
+  pull      PullRequest @relation(fields: [pr_id], references: [id])
+  timestamp String
+  filename  String      @unique
+  duration  Int // in minutes
+  reviewed  Boolean     @default(false)
+  approved  Boolean     @default(false)
 }
