@@ -259,7 +259,7 @@ async def github_callback(request: Request):
                         "type": "header",
                         "text": {
                             "type": "plain_text",
-                            "text": "Select your sessions for review!",
+                            "text": "Select your sessions for review!\nCopy and paste the lines of sessions that you want associated with this PR into the box!",
                             "emoji": True,
                         },
                     },
@@ -270,31 +270,59 @@ async def github_callback(request: Request):
                             "type": "mrkdwn",
                             "text": f"Here are all your sessions. Select the ones associated with OnBoard pull request #{pr_id}:",
                         },
-                        "accessory": {
-                            "type": "checkboxes",
-                            "options": [
-                                json.loads(
-                                    """{{"text": {{ "type": "mrkdwn", "text": "Your session on {pretty_time}"}}, "description": {{"type": "mrkdwn", "text": "You streamed for {length} {minute_or_minutes}"}}, "value": "checkbox-{filename}"}}""".format(
-                                        pretty_time=recording,
-                                        length=get_recording_duration(
-                                            recording, user_stream_key
-                                        ),
-                                        minute_or_minutes=(
-                                            "minute"
-                                            if get_recording_duration(
-                                                recording, user_stream_key
-                                            )
-                                            == 1
-                                            else "minutes"
-                                        ),
-                                        filename=recording,
-                                    )
-                                )
-                                for recording in stream_recs
-                            ],
-                            "action_id": "checkboxes",
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"{'\n'.join([recording + ' for ' + str(get_recording_duration(recording, user_stream_key)) + 'minutes' for recording in stream_recs])}",  # type: ignore
                         },
                     },
+                    {
+                        "type": "input",
+                        "block_id": "session-input",
+                        "element": {
+                            "type": "plain_text_input",
+                            "multiline": True,
+                            "action_id": "plain_text_input-action",
+                        },
+                        "label": {
+                            "type": "plain_text",
+                            "text": "Paste the lines here (DO NOT EDIT THEM, ONE ON EACH LINE)",
+                            "emoji": False,
+                        },
+                    },
+                    #             "block_id": "session-checks",
+                    #             "type": "section",
+                    #             "text": {
+                    #                 "type": "mrkdwn",
+                    #                 "text": f"Here are all your sessions. Select the ones associated with OnBoard pull request #{pr_id}:",
+                    #             },
+                    #             "accessory": {
+                    #                 "type": "checkboxes",
+                    #                 "options": [
+                    #                     json.loads(
+                    #                         """{{"text": {{ "type": "mrkdwn", "text": "Your session on {pretty_time}"}}, "description": {{"type": "mrkdwn", "text": "You streamed for {length} {minute_or_minutes}"}}, "value": "checkbox-{filename}"}}""".format(
+                    #                             pretty_time=recording,
+                    #                             length=get_recording_duration(
+                    #                                 recording, user_stream_key
+                    #                             ),
+                    #                             minute_or_minutes=(
+                    #                                 "minute"
+                    #                                 if get_recording_duration(
+                    #                                     recording, user_stream_key
+                    #                                 )
+                    #                                 == 1
+                    #                                 else "minutes"
+                    #                             ),
+                    #                             filename=recording,
+                    #                         )
+                    #                     )
+                    #                     for recording in stream_recs
+                    #                 ],
+                    #                 "action_id": "checkboxes",
+                    #             },
+                    #         },
                     {
                         "type": "actions",
                         "elements": [
@@ -379,12 +407,13 @@ async def handle_app_home_opened_events(body, logger, event, client):
 @bolt.action("submit_sessions")
 async def submit_sessions(ack: AsyncAck, body):
     await ack()
-    selected_sessions_ts: List[str] = [
-        i["text"]["text"].split("session on ")[1]
-        for i in body["state"]["values"]["session-checks"]["checkboxes"][
-            "selected_options"
-        ]
-    ]
+    selected_sessions_ts: List[str] = []
+    print(body["state"]["values"])
+    for session in body["state"]["values"]["session-input"]["plain_text_input-action"][
+        "value"
+    ].split("\n"):
+        selected_sessions_ts.append(session.split(" for ")[0])
+
     pr_id = int(
         body["message"]["blocks"][1]["text"]["text"].split("#")[1].split(":")[0]
     )  # don't tell my mom she raised a monster
