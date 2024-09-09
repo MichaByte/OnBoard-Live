@@ -83,7 +83,7 @@ async def get_recording_list(stream_key: str) -> List[str]:
             recording["start"]
             for recording in (
                 await client.get(
-                    f"http://localhost:9997/v3/recordings/get/{stream_key}"
+                    f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/recordings/get/{stream_key}"
                 )
             ).json()["segments"]
         ]
@@ -93,7 +93,7 @@ async def update_active():
     global active_stream
     global active_streams
     async with httpx.AsyncClient() as client:
-        streams_raw = (await client.get("http://localhost:9997/v3/paths/list")).json()[
+        streams_raw = (await client.get(f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/paths/list")).json()[
             "items"
         ]
         streams = []
@@ -124,7 +124,7 @@ async def check_for_new():
     global active_stream
     global active_streams
     async with httpx.AsyncClient() as client:
-        streams_raw = (await client.get("http://localhost:9997/v3/paths/list")).json()[
+        streams_raw = (await client.get(f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/paths/list")).json()[
             "items"
         ]
         streams_simple = []
@@ -161,7 +161,7 @@ async def lifespan(app: FastAPI):
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
             await client.post(
-                "http://127.0.0.1:9997/v3/config/paths/add/" + stream.key,
+                f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/config/paths/add/" + stream.key,
                 json={"name": stream.key},
             )
     yield
@@ -494,7 +494,7 @@ async def approve(ack, body):
     )
     async with httpx.AsyncClient() as client:
         await client.post(
-            "http://127.0.0.1:9997/v3/config/paths/add/" + new_stream.key,
+            f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/config/paths/add/" + new_stream.key,
             json={"name": new_stream.key},
         )
     await bolt.client.chat_postMessage(

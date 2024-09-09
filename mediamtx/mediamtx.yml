@@ -1,0 +1,13 @@
+playback: yes
+playbackAddress: :9996
+playbackTrustedProxies: [ '127.0.0.1' ]
+api: yes
+pathDefaults:
+  record: yes
+  # Path of recording segments.
+  # Extension is added automatically.
+  # Available variables are %path (path name), %Y %m %d %H %M %S %f %s (time in strftime format)
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordDeleteAfter: 0s
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
