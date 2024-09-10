@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from secrets import choice, token_hex
 from typing import Dict, List
+import time
 
 import cv2
 import httpx
@@ -151,12 +152,6 @@ async def check_for_new():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await update_active()
-    scheduler.start()
-    scheduler.add_job(update_active, IntervalTrigger(minutes=5))
-    scheduler.add_job(check_for_new, IntervalTrigger(seconds=3))
-    scheduler.add_job(rotate_fernet_key, IntervalTrigger(minutes=30))
-    await rotate_fernet_key()
     await db.connect()
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
@@ -164,6 +159,11 @@ async def lifespan(app: FastAPI):
                 f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/config/paths/add/" + stream.key,
                 json={"name": stream.key},
             )
+    scheduler.start()
+    scheduler.add_job(update_active, IntervalTrigger(minutes=5))
+    scheduler.add_job(check_for_new, IntervalTrigger(seconds=3))
+    scheduler.add_job(rotate_fernet_key, IntervalTrigger(minutes=30))
+    await rotate_fernet_key()
     yield
     scheduler.shutdown()
     await db.disconnect()

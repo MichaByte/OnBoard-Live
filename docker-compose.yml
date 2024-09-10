@@ -1,9 +1,12 @@
 services:
   mediamtx:
-    network_mode: host
     build:
       context: ./mediamtx
       dockerfile: Dockerfile
+    ports:
+      - "8889:8889"
+      - "1935:1935"
+      - "9997:9997"
   web-frontend:
     build:
       context: ./tiling-frontend
@@ -12,8 +15,8 @@ services:
       - tiling_frontend_build:/usr/src/app/dist  
   live-stream:
     depends_on:
-      web-frontend:
-        condition: service_completed_successfully
+      active_stream_proxy:
+        condition: service_started
     build:
       context: ./live-stream
       dockerfile: Dockerfile
@@ -23,6 +26,8 @@ services:
       YT_STREAM_KEY: ${YT_STREAM_KEY}
   backend:
     env_file: .backend.env
+    ports:
+      - "8000:8000"
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -36,6 +41,8 @@ services:
       web-frontend:
         condition: service_completed_successfully
       mediamtx:
+        condition: service_started
+      backend:
         condition: service_started
 volumes:
   mediamtx_recordings:
