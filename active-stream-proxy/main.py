@@ -2,7 +2,7 @@ import subprocess
 import time
 import requests
 
-time.sleep(10)
+time.sleep(8)
 
 active_stream = requests.get("http://backend:8000/api/v1/active_stream").text.replace('"', '')
 print(active_stream)
