@@ -12,7 +12,9 @@ old_active_stream = active_stream
 proc = None
 
 if active_stream != "":
-    proc = subprocess.Popen(["/bin/ffmpeg", "-re", "-i", f"rtmp://mediamtx:1935/{active_stream}", "-c:a copy", "rtmp://host.containers.internal:1936/active-input"])
+    proc = subprocess.Popen(["/bin/ffmpeg", "-re", "-i", f"rtmp://mediamtx:1935/{active_stream}", "-c:a copy", "rtmp://live-stream:1936/active-input"])
+else:
+    proc = subprocess.Popen(["/bin/ffmpeg", "-i", "anullsrc", "-c:a copy", "rtmp://live-stream:1936/active-input"])
 
 
 while True:
@@ -21,6 +23,8 @@ while True:
     if old_active_stream is not active_stream:
         if proc:
             proc.terminate()
-        print("e")
-        proc = subprocess.Popen(["/bin/ffmpeg", "-re", "-i", f"rtmp://mediamtx:1935/{active_stream}", "-c:a copy", "rtmp://host.containers.internal:1936/active-input"])
+        if active_stream != "":
+            proc = subprocess.Popen(["/bin/ffmpeg", "-re", "-i", f"rtmp://mediamtx:1935/{active_stream}", "-c:a copy", "rtmp://live-stream:1936/active-input"])
+        else:
+            proc = subprocess.Popen(["/bin/ffmpeg", "-i", "anullsrc", "-c:a copy", "rtmp://live-stream:1936/active-input"])
     old_active_stream = active_stream
