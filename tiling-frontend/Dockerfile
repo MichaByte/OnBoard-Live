@@ -14,3 +14,5 @@ FROM base AS release
 COPY --from=install /temp/dev/node_modules node_modules
 COPY . .
 RUN bun --bun run build
+ENTRYPOINT ["bun", "--bun", "run", "preview", "--host"]
+

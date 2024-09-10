@@ -20,3 +20,6 @@ authInternalUsers:
   ips: []
   permissions:
     - action: api
+    - action: publish
+    - action: playback
+    - action: read

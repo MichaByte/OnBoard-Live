@@ -8,12 +8,16 @@ services:
       - "1935:1935"
       - "9997:9997"
   web-frontend:
+    ports:
+      - "4173:4173"
     build:
       context: ./tiling-frontend
       dockerfile: Dockerfile
     volumes:
       - tiling_frontend_build:/usr/src/app/dist  
   live-stream:
+    ports:
+      - "1936:1936"
     depends_on:
       active_stream_proxy:
         condition: service_started
@@ -22,8 +26,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - tiling_frontend_build:/html
-    environment:
-      YT_STREAM_KEY: ${YT_STREAM_KEY}
+    env_file: .stream.env
   backend:
     env_file: .backend.env
     ports:
