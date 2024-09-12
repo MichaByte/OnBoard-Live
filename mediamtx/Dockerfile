@@ -1,4 +1,4 @@
-FROM bluenviron/mediamtx
+FROM docker.io/bluenviron/mediamtx
 
 COPY . /
 
