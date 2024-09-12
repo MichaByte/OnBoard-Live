@@ -1,12 +1,12 @@
 live.onboard.hackclub.com {
-	reverse_proxy localhost:8889
+	reverse_proxy host.containers.internal:8889
 	handle /slack/* {
-		reverse_proxy localhost:8000
+		reverse_proxy host.containers.internal:8000
 	}
 	handle /api/v1/github/* {
-		reverse_proxy localhost:8000
+		reverse_proxy host.containers.internal:8000
 	}
 	handle /auth/* {
-		reverse_proxy localhost:8000
+		reverse_proxy host.containers.internal:8000
 	}
 }
