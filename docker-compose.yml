@@ -37,6 +37,19 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./backend/db:/usr/src/app/db
+  caddy:
+    image: docker.io/caddy:alpine
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - $PWD/caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config=
   # active-stream-proxy:
   #   build:
   #     context: ./active-stream-proxy
@@ -51,3 +64,5 @@ services:
 volumes:
   mediamtx_recordings:
   tiling_frontend_build:
+  caddy_data:
+  caddy_config:
