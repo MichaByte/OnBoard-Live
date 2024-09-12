@@ -15,21 +15,23 @@ services:
       context: ./tiling-frontend
       dockerfile: Dockerfile
     volumes:
-      - tiling_frontend_build:/usr/src/app/dist  
+      - tiling_frontend_build:/usr/src/app/dist
   live-stream:
+    network_mode: "host"
+    env_file: .stream.env
     depends_on:
-      active_stream_proxy:
+      backend:
+        condition: service_started
+      web-frontend:
         condition: service_started
     build:
       context: ./live-stream
       dockerfile: Dockerfile
     volumes:
       - tiling_frontend_build:/html
-    env_file: .stream.env
   backend:
+    network_mode: "host"
     env_file: .backend.env
-    ports:
-      - "8000:8000"
     build:
       context: ./backend
       dockerfile: Dockerfile
