@@ -20,4 +20,4 @@ RUN prisma generate
 
 COPY main.py .
 
-CMD [ "fastapi", "run", "main.py" ]
+CMD [ "uvicorn", "main:api", "--log-level", "warning", "--workers", "4", "--host", "0.0.0.0", "--port", "8000" ]

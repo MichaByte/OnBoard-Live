@@ -275,7 +275,7 @@ async def github_callback(request: Request):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"{'\n'.join([recording + ' for ' + str(get_recording_duration(recording, user_stream_key)) + 'minutes' for recording in stream_recs])}",  # type: ignore
+                            "text": '\n'.join([recording + ' for ' + str(get_recording_duration(recording, user_stream_key)) + 'minutes' for recording in stream_recs]),  # type: ignore
                         },
                     },
                     {
