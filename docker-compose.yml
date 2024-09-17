@@ -5,6 +5,8 @@ services:
     build:
       context: ./mediamtx
       dockerfile: Dockerfile
+    volumes:
+      - mediamtx_recordings:/recordings
     # ports:
     #   - "8889:8889"
     #   - "1935:1935"
