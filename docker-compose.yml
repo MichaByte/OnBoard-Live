@@ -1,5 +1,6 @@
 services:
   mediamtx:
+    restart: unless-stopped
     network_mode: "host"
     build:
       context: ./mediamtx
@@ -18,6 +19,7 @@ services:
       - tiling_frontend_build:/usr/src/app/dist
   live-stream:
     network_mode: "host"
+    restart: unless-stopped
     env_file: .stream.env
     depends_on:
       backend:
@@ -31,6 +33,7 @@ services:
       - tiling_frontend_build:/html
   backend:
     network_mode: "host"
+    restart: unless-stopped
     env_file: .backend.env
     build:
       context: ./backend
