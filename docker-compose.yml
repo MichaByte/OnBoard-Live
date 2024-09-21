@@ -20,6 +20,12 @@ services:
     volumes:
       - tiling_frontend_build:/usr/src/app/dist
   live-stream:
+    deploy:
+      resources:
+        limits:
+          memory: 8192M
+        reservations:
+          memory: 8192M
     network_mode: "host"
     restart: unless-stopped
     env_file: .stream.env

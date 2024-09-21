@@ -51,7 +51,7 @@
           pathData = newData;
           setTimeout(() => {
             for (const video in videos) {
-              const hlsInstance = new hls({ progressive: false });
+              const hlsInstance = new hls({ backBufferLength: 2 });
               hlsInstance.loadSource(
                 `http://localhost:8888/${video}/index.m3u8`,
               );

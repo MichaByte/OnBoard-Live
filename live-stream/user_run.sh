@@ -12,7 +12,7 @@ export LIBGL_ALWAYS_INDIRECT=1
 
 bash -c "DISPLAY=:99 xvfb-run \
     --server-num 99 \
-    -s "-nocursor -ac -screen 0 1920x1080x24" \
+    -s \"-nocursor -ac -screen 0 1920x1080x24\" \
     dbus-launch chromium \
     --temp-profile \
     --window-size=1920,1080 \
