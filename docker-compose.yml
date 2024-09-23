@@ -27,6 +27,7 @@ services:
         reservations:
           memory: 8192M
     network_mode: "host"
+    shm_size: '8gb'
     restart: unless-stopped
     env_file: .stream.env
     depends_on:
@@ -48,6 +49,8 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./backend/db:/usr/src/app/db
+    mediamtx:
+      condition: service_started
   caddy:
     image: docker.io/caddy:alpine
     restart: unless-stopped
@@ -61,17 +64,6 @@ services:
       - $PWD/caddy/Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config=
-  # active-stream-proxy:
-  #   build:
-  #     context: ./active-stream-proxy
-  #     dockerfile: Dockerfile
-  #   depends_on:
-  #     web-frontend:
-  #       condition: service_completed_successfully
-  #     mediamtx:
-  #       condition: service_started
-  #     backend:
-  #       condition: service_started
 volumes:
   mediamtx_recordings:
   tiling_frontend_build:

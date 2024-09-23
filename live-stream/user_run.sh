@@ -6,7 +6,7 @@ sleep 2
 pacmd load-module module-null-sink sink_name=VirtSink
 pacmd update-sink-proplist VirtSink device.description=VirtSink
 
-export CHROMIUM_FLAGS="--disable-software-rasterizer --disable-dev-shm-usage"
+export CHROMIUM_FLAGS="--disable-software-rasterizer"
 export LIBGL_ALWAYS_INDIRECT=1
 
 
