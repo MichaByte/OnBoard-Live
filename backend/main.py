@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from secrets import choice, token_hex
 from typing import Dict, List
-import time
 
 import cv2
 import httpx
@@ -94,9 +93,9 @@ async def update_active():
     global active_stream
     global active_streams
     async with httpx.AsyncClient() as client:
-        streams_raw = (await client.get(f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/paths/list")).json()[
-            "items"
-        ]
+        streams_raw = (
+            await client.get(f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/paths/list")
+        ).json()["items"]
         streams = []
         for stream in streams_raw:
             streams.append({"name": stream["name"], "ready": stream["ready"]})
@@ -113,11 +112,33 @@ async def update_active():
         new_stream = choice(active_streams)
         while new_stream["name"] == active_stream["name"]:
             new_stream = choice(active_streams)
-        old_active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
-        await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!")  # type: ignore
+        old_active_stream_user = await db.user.find_first(
+            where={
+                "id": (
+                    await db.stream.find_first(
+                        where={"key": str(active_stream["name"])}
+                    )
+                ).user_id  # type: ignore
+            }
+        )
+        await bolt.client.chat_postMessage(
+            channel="C07ERCGG989",
+            text=f"Hey <@{old_active_stream_user.slack_id}>, you're no longer in focus!",  # type: ignore
+        )
         active_stream = new_stream
-        active_stream_user = await db.user.find_first(where={"id": (await db.stream.find_first(where={"key": str(active_stream["name"])})).user_id})  # type: ignore
-        await bolt.client.chat_postMessage(channel="C07ERCGG989", text=f"Hey <@{active_stream_user.slack_id}>, you're in focus! Make sure to tell us what you're working on!")  # type: ignore
+        active_stream_user = await db.user.find_first(
+            where={
+                "id": (
+                    await db.stream.find_first(
+                        where={"key": str(active_stream["name"])}
+                    )
+                ).user_id  # type: ignore
+            }
+        )
+        await bolt.client.chat_postMessage(
+            channel="C07ERCGG989",
+            text=f"Hey <@{active_stream_user.slack_id}>, you're in focus! Make sure to tell us what you're working on!",  # type: ignore
+        )
         return True
 
 
@@ -125,9 +146,9 @@ async def check_for_new():
     global active_stream
     global active_streams
     async with httpx.AsyncClient() as client:
-        streams_raw = (await client.get(f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/paths/list")).json()[
-            "items"
-        ]
+        streams_raw = (
+            await client.get(f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/paths/list")
+        ).json()["items"]
         streams_simple = []
         for stream in streams_raw:
             if stream["ready"]:
@@ -151,12 +172,13 @@ async def check_for_new():
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan():
     await db.connect()
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
             await client.post(
-                f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/config/paths/add/" + stream.key,
+                f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/config/paths/add/"
+                + stream.key,
                 json={"name": stream.key},
             )
     scheduler.start()
@@ -275,7 +297,19 @@ async def github_callback(request: Request):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": '\n'.join([recording + ' for ' + str(get_recording_duration(recording, user_stream_key)) + 'minutes' for recording in stream_recs]),  # type: ignore
+                            "text": "\n".join(
+                                [
+                                    recording
+                                    + " for "
+                                    + str(
+                                        get_recording_duration(
+                                            recording, user_stream_key
+                                        )
+                                    )
+                                    + "minutes"
+                                    for recording in stream_recs
+                                ]
+                            ),  # type: ignore
                         },
                     },
                     {
@@ -383,7 +417,7 @@ async def get_active_stream():
 
 
 @bolt.event("app_home_opened")
-async def handle_app_home_opened_events(body, logger, event, client):
+async def handle_app_home_opened_events(event, client):
     await client.views_publish(
         user_id=event["user"],
         # the view object that appears in the app home
@@ -443,14 +477,10 @@ async def deny(ack, body):
     message = body["message"]
     applicant_slack_id = message["blocks"][len(message) - 3]["text"]["text"].split(
         ": "
-    )[
-        1
-    ]  # I hate it. You hate it. We all hate it. Carry on.
+    )[1]  # I hate it. You hate it. We all hate it. Carry on.
     applicant_name = message["blocks"][len(message) - 7]["text"]["text"].split(
         "Name: "
-    )[
-        1
-    ]  # oops i did it again
+    )[1]  # oops i did it again
     await bolt.client.chat_delete(
         channel=body["container"]["channel_id"], ts=message["ts"]
     )
@@ -466,14 +496,10 @@ async def approve(ack, body):
     message = body["message"]
     applicant_slack_id = message["blocks"][len(message) - 3]["text"]["text"].split(
         ": "
-    )[
-        1
-    ]  # I hate it. You hate it. We all hate it. Carry on.
+    )[1]  # I hate it. You hate it. We all hate it. Carry on.
     applicant_name = message["blocks"][len(message) - 7]["text"]["text"].split(
         "Name: "
-    )[
-        1
-    ]  # oops i did it again
+    )[1]  # oops i did it again
     await bolt.client.chat_delete(
         channel=body["container"]["channel_id"], ts=message["ts"]
     )
@@ -494,7 +520,8 @@ async def approve(ack, body):
     )
     async with httpx.AsyncClient() as client:
         await client.post(
-            f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/config/paths/add/" + new_stream.key,
+            f"http://{os.environ['MEDIAMTX_IP']}:9997/v3/config/paths/add/"
+            + new_stream.key,
             json={"name": new_stream.key},
         )
     await bolt.client.chat_postMessage(
