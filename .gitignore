@@ -188,3 +188,4 @@ cython_debug/
 
 *.dat
 dev.db*
+.*env

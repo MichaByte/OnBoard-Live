@@ -1,20 +1,21 @@
 generator client {
   provider             = "prisma-client-py"
+  recursive_type_depth = "5"
   interface            = "asyncio"
-  recursive_type_depth = 5
 }
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = "file:./db/dev.db"
 }
 
 model User {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-  slack_id   String   @unique
-  name       String
-  stream     Stream?
+  id            String        @id @default(cuid())
+  created_at    DateTime      @default(now())
+  slack_id      String        @unique
+  name          String
+  pull_requests PullRequest[] @relation("PullRequestToUser")
+  stream        Stream?
 }
 
 model Stream {
@@ -23,6 +24,26 @@ model Stream {
   is_live    Boolean  @default(false)
   is_focused Boolean  @default(false)
   key        String   @unique @default(uuid())
-  user       User     @relation(fields: [user_id], references: [id])
   user_id    String   @unique
+  user       User     @relation(fields: [user_id], references: [id])
+}
+
+model PullRequest {
+  id         Int       @id @default(autoincrement())
+  github_id  Int       @unique
+  user_id    String?
+  gh_user_id Int
+  user       User?     @relation("PullRequestToUser", fields: [user_id], references: [id])
+  sessions   Session[]
+}
+
+model Session {
+  id        String      @id @default(cuid())
+  pr_id     Int
+  pull      PullRequest @relation(fields: [pr_id], references: [id])
+  timestamp String
+  filename  String      @unique
+  duration  Int // in minutes
+  reviewed  Boolean     @default(false)
+  approved  Boolean     @default(false)
 }

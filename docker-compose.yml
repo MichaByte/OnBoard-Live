@@ -1,0 +1,71 @@
+services:
+  mediamtx:
+    restart: unless-stopped
+    network_mode: "host"
+    build:
+      context: ./mediamtx
+      dockerfile: Dockerfile
+    volumes:
+      - mediamtx_recordings:/recordings
+    # ports:
+    #   - "8889:8889"
+    #   - "1935:1935"
+    #   - "9997:9997"
+  web-frontend:
+    ports:
+      - "4173:4173"
+    build:
+      context: ./tiling-frontend
+      dockerfile: Dockerfile
+    volumes:
+      - tiling_frontend_build:/usr/src/app/dist
+  live-stream:
+    deploy:
+      resources:
+        limits:
+          memory: 8192M
+        reservations:
+          memory: 8192M
+    network_mode: "host"
+    shm_size: '8gb'
+    restart: unless-stopped
+    env_file: .stream.env
+    depends_on:
+      backend:
+        condition: service_started
+      web-frontend:
+        condition: service_started
+    build:
+      context: ./live-stream
+      dockerfile: Dockerfile
+    volumes:
+      - tiling_frontend_build:/html
+  backend:
+    network_mode: "host"
+    restart: unless-stopped
+    env_file: .backend.env
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./backend/db:/usr/src/app/db
+    mediamtx:
+      condition: service_started
+  caddy:
+    image: docker.io/caddy:alpine
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - $PWD/caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config=
+volumes:
+  mediamtx_recordings:
+  tiling_frontend_build:
+  caddy_data:
+  caddy_config:
