@@ -172,7 +172,7 @@ async def check_for_new():
 
 
 @asynccontextmanager
-async def lifespan():
+async def lifespan(_):
     await db.connect()
     async with httpx.AsyncClient() as client:
         for stream in await db.stream.find_many():
