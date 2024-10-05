@@ -49,8 +49,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./backend/db:/usr/src/app/db
-    mediamtx:
-      condition: service_started
+      - mediamtx_recordings:/recordings
   caddy:
     image: docker.io/caddy:alpine
     restart: unless-stopped

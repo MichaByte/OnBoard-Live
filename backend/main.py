@@ -48,7 +48,7 @@ async def rotate_fernet_key():
 
 def get_recording_duration(timestamp, stream_key):
     vid = cv2.VideoCapture(
-        f"/home/onboard/recordings/{stream_key}/{datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y-%m-%d_%H-%M-%S-%f')}.mp4"
+        f"/recordings/{stream_key}/{datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y-%m-%d_%H-%M-%S-%f')}.mp4"
     )
     return int(
         (vid.get(cv2.CAP_PROP_FRAME_COUNT) / vid.get(cv2.CAP_PROP_FPS)) / 60
