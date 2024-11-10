@@ -526,7 +526,7 @@ async def approve(ack, body):
         )
     await bolt.client.chat_postMessage(
         channel=sumbitter_convo["channel"]["id"],
-        text=f"Welcome to OnBoard Live! Your stream key is {new_stream.key}. To use your stream key the easy way, go to <https://live.onboard.hackclub.com/{new_stream.key}/publish|this link>. You can also use it in OBS with the server URL of rtmp://live.onboard.hackclub.com:1935",
+        text=f"Welcome to OnBoard Live! Your stream key is {new_stream.key}. To use your stream key the easy way, go to <https://live.onboard.hackclub.com/{new_stream.key}/publish|this link>. You can also use it in OBS with the server URL of rtmp://live.onboard.hackclub.com:1935>. Make sure to turn on your microphone, or leav notes in chat, so we can know what you doing",
     )
 
 
