@@ -62,7 +62,7 @@ services:
     volumes:
       - $PWD/caddy/Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
-      - caddy_config:/config=
+      - caddy_config:/config
 volumes:
   mediamtx_recordings:
   tiling_frontend_build:
