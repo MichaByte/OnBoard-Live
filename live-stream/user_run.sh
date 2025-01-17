@@ -20,7 +20,7 @@ bash -c "DISPLAY=:99 xvfb-run \
     --window-position=0,0 \
     --hide-scrollbars \
     --autoplay-policy=no-user-gesture-required \
-    --app=http://localhost:4173" & disown
+    --app=http://tiling-frontend:4173" & disown
 
 sleep 3
 
