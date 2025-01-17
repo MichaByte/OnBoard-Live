@@ -20,7 +20,7 @@
     const fetchData = async () => {
       try {
         const activeStreamResponse = await fetch(
-          "http://localhost:8000/api/v1/active_stream",
+          "http://backend:8000/api/v1/active_stream",
         );
         activeStream = (await activeStreamResponse.text()).replaceAll('"', "");
         // if (oldActiveStream !== null && oldActiveStream !== activeStream) {
@@ -28,7 +28,7 @@
         // }
         oldActiveStream = activeStream;
         const pathListResponse = await (
-          await fetch("http://localhost:9997/v3/paths/list")
+          await fetch("http://mediamtx:9997/v3/paths/list")
         ).json();
         console.log(pathListResponse);
         newData = [];
@@ -53,7 +53,7 @@
             for (const video in videos) {
               const hlsInstance = new hls({ backBufferLength: 2 });
               hlsInstance.loadSource(
-                `http://localhost:8888/${video}/index.m3u8`,
+                `http://mediamtx:8888/${video}/index.m3u8`,
               );
               hlsInstance.attachMedia(videos[video]);
             }
