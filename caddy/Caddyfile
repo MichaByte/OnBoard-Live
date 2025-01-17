@@ -1,4 +1,4 @@
-live.onboard.hackclub.com {
+http://:46082 {
 	reverse_proxy mediamtx:8888
 	handle /slack/* {
 		reverse_proxy backend:8000
