@@ -39,15 +39,15 @@ services:
     volumes:
       - ./backend/db:/usr/src/app/db
       - mediamtx_recordings:/recordings
-  caddy:
-    image: docker.io/caddy:alpine
-    restart: unless-stopped
-    ports:
-     - "46082:46082"
-    volumes:
-      - $PWD/caddy/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
+  # caddy:
+  #   image: docker.io/caddy:alpine
+  #   restart: unless-stopped
+  #   ports:
+  #    - "46082:46082"
+  #   volumes:
+  #     - $PWD/caddy/Caddyfile:/etc/caddy/Caddyfile
+  #     - caddy_data:/data
+  #     - caddy_config:/config
 volumes:
   mediamtx_recordings:
   tiling_frontend_build:
