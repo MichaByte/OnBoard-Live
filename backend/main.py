@@ -306,7 +306,7 @@ async def github_callback(request: Request):
                                             recording, user_stream_key
                                         )
                                     )
-                                    + "minutes"
+                                    + " minutes"
                                     for recording in stream_recs
                                 ]
                             ),  # type: ignore
@@ -664,7 +664,7 @@ async def status_command(ack: AsyncAck, command):
                 recording, user_stream_key
             )
         )
-        + "minutes"
+        + " minutes"
         for recording in stream_recs
     ])
     await bolt.client.chat_postEphemeral(
