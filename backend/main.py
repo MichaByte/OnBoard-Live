@@ -643,36 +643,41 @@ async def status_command(ack: AsyncAck, command):
     await ack()
     user_id = command["user_id"]
     channel_id = command["channel_id"]
-    text = command["text"]
-    db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
-    user_stream_key = (
-        await db.stream.find_first_or_raise(where={"user_id": db_user.id})
-    ).key
-    stream_recs = await get_recording_list(user_stream_key)
-    if stream_recs is None:
+    try:
+        db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
+        user_stream_key = (
+            await db.stream.find_first_or_raise(where={"user_id": db_user.id})
+        ).key
+        stream_recs = await get_recording_list(user_stream_key)
+        if stream_recs is None:
+            await bolt.client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=f"You don't have any recorded streams! Please message <@U05C64XMMHV> if you think this is a mistake."
+            )
+        total_streamed = sum([get_recording_duration(recording, user_stream_key) for recording in stream_recs])
+        all_recs = "\n".join([
+            recording
+            + " for "
+            + str(
+                get_recording_duration(
+                    recording, user_stream_key
+                )
+            )
+            + " minutes"
+            for recording in stream_recs
+        ])
         await bolt.client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text=f"You don't have any recorded streams! Please message <@U05C64XMMHV> if you think this is a mistake."
+            text=f"The server currently thinks you are {"live" if user_stream_key in [stream for stream in active_streams] else "not live"}! It looks like you've streamed for a total of {total_streamed} minutes. Here are all of your recordings: ```{all_recs}```"
         )
-    total_streamed = sum([get_recording_duration(recording, user_stream_key) for recording in stream_recs])
-    all_recs = "\n".join([
-        recording
-        + " for "
-        + str(
-            get_recording_duration(
-                recording, user_stream_key
-            )
+    except Exception:
+        await bolt.client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text=f"There was an error processing your request! Are you signed up for OnBoard Live yet? Message <@U05C64XMMHV> if this looks like a mistake!"
         )
-        + " minutes"
-        for recording in stream_recs
-    ])
-    await bolt.client.chat_postEphemeral(
-        channel=channel_id,
-        user=user_id,
-        text=f"The server currently thinks you are {"live" if user_stream_key in [stream for stream in active_streams] else "not live"}! It looks like you've streamed for a total of {total_streamed} minutes. Here are all of your recordings: ```{all_recs}```"
-    )
-
 
 @bolt.command("/onboard-live-submit")
 async def submit(ack: AsyncAck, command):
