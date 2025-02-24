@@ -655,7 +655,7 @@ async def status_command(ack: AsyncAck, command):
             user=user_id,
             text=f"You don't have any recorded streams! Please message <@U05C64XMMHV> if you think this is a mistake."
         )
-    
+    total_streamed = sum([get_recording_duration(recording, user_stream_key) for recording in stream_recs])
     all_recs = "\n".join([
         recording
         + " for "
@@ -670,7 +670,7 @@ async def status_command(ack: AsyncAck, command):
     await bolt.client.chat_postEphemeral(
         channel=channel_id,
         user=user_id,
-        text=f"The server currently thinks you are {"live" if user_stream_key in [stream for stream in active_streams] else "not live"}! Here are all of your recordings: ```{all_recs}```"
+        text=f"The server currently thinks you are {"live" if user_stream_key in [stream for stream in active_streams] else "not live"}! It looks like you've streamed for a total of {total_streamed} minutes. Here are all of your recordings: ```{all_recs}```"
     )
 
 
