@@ -638,6 +638,42 @@ async def handle_application_submission(ack, body):
     )
 
 
+@bolt.command("/onboard-live-status")
+async def status_command(ack: AsyncAck, command):
+    await ack()
+    user_id = command["user_id"]
+    channel_id = command["channel_id"]
+    text = command["text"]
+    db_user = await db.user.find_first_or_raise(where={"slack_id": user_id})
+    user_stream_key = (
+        await db.stream.find_first_or_raise(where={"user_id": db_user.id})
+    ).key
+    stream_recs = await get_recording_list(user_stream_key)
+    if stream_recs is None:
+        await bolt.client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text=f"You don't have any recorded streams! Please message <@U05C64XMMHV> if you think this is a mistake."
+        )
+    
+    all_recs = "\n".join([
+        recording
+        + " for "
+        + str(
+            get_recording_duration(
+                recording, user_stream_key
+            )
+        )
+        + "minutes"
+        for recording in stream_recs
+    ])
+    await bolt.client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        text=f"The server currently thinks you are {"live" if user_stream_key in [stream for stream in active_streams] else "not live"}! Here are all of your recordings: ```{all_recs}```"
+    )
+
+
 @bolt.command("/onboard-live-submit")
 async def submit(ack: AsyncAck, command):
     await ack()
@@ -649,7 +685,7 @@ async def submit(ack: AsyncAck, command):
         await bolt.client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text="There doesn't seem to be a PR open with that ID! If this seems like a mistake, please message <@U05C64XMMHV> about it!",
+            text="There doesn't seem to be a PR open with that ID! If this seems like a mistake, please message <@U05C64XMMHV> about it! Note that all new OnBoard Live PRs must be marked as such before this command will accept them. This has to be done manually by an OnBoard reviewer or <@U05C64XMMHV>! Once that's done, please don't bug the OnBoard reviewers, as <@U05C64XMMHV> is the only one who can review your OnBoard Live grant! Feel free to DM her if it's taking a while.",
         )
         return
     if user_id not in FERNET_KEY_USERS:
