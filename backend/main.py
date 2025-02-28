@@ -7,6 +7,7 @@ from datetime import datetime
 from secrets import choice, token_hex
 from typing import Dict, List
 
+import click
 import cv2
 import httpx
 import uvicorn
@@ -17,7 +18,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
-from prisma import Prisma
+from prisma import Prisma  # type: ignore
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
 from slack_bolt.async_app import AsyncAck, AsyncApp
 from yarl import URL
@@ -35,6 +36,10 @@ FERNET_KEY_USERS = []
 
 FERNET = Fernet(FERNET_KEY)
 
+
+@click.group()
+def cli():
+    pass
 
 async def rotate_fernet_key():
     global FERNET_KEY
@@ -477,10 +482,14 @@ async def deny(ack, body):
     message = body["message"]
     applicant_slack_id = message["blocks"][len(message) - 3]["text"]["text"].split(
         ": "
-    )[1]  # I hate it. You hate it. We all hate it. Carry on.
+    )[
+        1
+    ]  # I hate it. You hate it. We all hate it. Carry on.
     applicant_name = message["blocks"][len(message) - 7]["text"]["text"].split(
         "Name: "
-    )[1]  # oops i did it again
+    )[
+        1
+    ]  # oops i did it again
     await bolt.client.chat_delete(
         channel=body["container"]["channel_id"], ts=message["ts"]
     )
@@ -496,10 +505,14 @@ async def approve(ack, body):
     message = body["message"]
     applicant_slack_id = message["blocks"][len(message) - 3]["text"]["text"].split(
         ": "
-    )[1]  # I hate it. You hate it. We all hate it. Carry on.
+    )[
+        1
+    ]  # I hate it. You hate it. We all hate it. Carry on.
     applicant_name = message["blocks"][len(message) - 7]["text"]["text"].split(
         "Name: "
-    )[1]  # oops i did it again
+    )[
+        1
+    ]  # oops i did it again
     await bolt.client.chat_delete(
         channel=body["container"]["channel_id"], ts=message["ts"]
     )
@@ -653,31 +666,35 @@ async def status_command(ack: AsyncAck, command):
             await bolt.client.chat_postEphemeral(
                 channel=channel_id,
                 user=user_id,
-                text=f"You don't have any recorded streams! Please message <@U05C64XMMHV> if you think this is a mistake."
+                text=f"You don't have any recorded streams! Please message <@U05C64XMMHV> if you think this is a mistake.",
             )
-        total_streamed = sum([get_recording_duration(recording, user_stream_key) for recording in stream_recs])
-        all_recs = "\n".join([
-            recording
-            + " for "
-            + str(
-                get_recording_duration(
-                    recording, user_stream_key
-                )
-            )
-            + " minutes"
-            for recording in stream_recs
-        ])
+        total_streamed = sum(
+            [
+                get_recording_duration(recording, user_stream_key)
+                for recording in stream_recs
+            ]
+        )
+        all_recs = "\n".join(
+            [
+                recording
+                + " for "
+                + str(get_recording_duration(recording, user_stream_key))
+                + " minutes"
+                for recording in stream_recs
+            ]
+        )
         await bolt.client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text=f"The server currently thinks you are {"live" if user_stream_key in [stream for stream in active_streams] else "not live"}! It looks like you've streamed for a total of {total_streamed} minutes. Here are all of your recordings: ```{all_recs}```"
+            text=f"The server currently thinks you are {"live" if user_stream_key in [stream for stream in active_streams] else "not live"}! It looks like you've streamed for a total of {total_streamed} minutes. Here are all of your recordings: ```{all_recs}```",
         )
     except Exception:
         await bolt.client.chat_postEphemeral(
             channel=channel_id,
             user=user_id,
-            text=f"There was an error processing your request! Are you signed up for OnBoard Live yet? Message <@U05C64XMMHV> if this looks like a mistake!"
+            text=f"There was an error processing your request! Are you signed up for OnBoard Live yet? Message <@U05C64XMMHV> if this looks like a mistake!",
         )
+
 
 @bolt.command("/onboard-live-submit")
 async def submit(ack: AsyncAck, command):
@@ -896,9 +913,20 @@ async def slack_event_endpoint(req: Request):
     return await bolt_handler.handle(req)
 
 
-def main():
-    uvicorn.run(api)
+@cli.command()
+@click.option("-u", "--user", "user")
+@click.option("-s", "--session", "session")
+@click.option("-", "--session", "session")
+def update_session(user: str, session: str):
+    pass
+
+@cli.command()
+@click.option('-l', '--log-level', 'log-level')
+@click.option('-h', '--host', 'host')
+@click.option('-p', '--port', 'port')
+def run(log_level: str, host: str, port: int):
+    uvicorn.run(api, log_level=log_level, host=host, port=port)
 
 
 if __name__ == "__main__":
-    main()
+    cli()
